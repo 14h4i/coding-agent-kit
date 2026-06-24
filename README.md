@@ -12,8 +12,7 @@ Supported targets:
 - [Codex](https://developers.openai.com/codex)
 - [opencode](https://opencode.ai)
 
-`coding-agent-kit` installs one platform at a time. There is intentionally no
-`--target all`.
+`coding-agent-kit` installs one platform at a time.
 
 ---
 

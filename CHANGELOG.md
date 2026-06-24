@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.1] - 2026-06-24
+
+### Changed
+
+- Updated README wording for the one-platform-at-a-time install flow.
+
 ## [1.0.0] - 2026-06-24
 
 Initial release of `coding-agent-kit`.
