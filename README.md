@@ -61,7 +61,7 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
 ## Requirements
 
 - Node.js 18+
-- Codex app or CLI for the `codex` target
+- Codex app, IDE extension, or CLI for the `codex` target
 - opencode installed for the `opencode` target
 
 ---
@@ -233,6 +233,10 @@ opencode
 The Codex installer is designed for machines that already have Codex configured.
 
 - Existing `~/.codex/AGENTS.md` content is preserved.
+- If `~/.codex/AGENTS.md` already has content, the CLI previews the change and
+  asks whether to append the managed block, overwrite the file, or cancel.
+- Existing content is preserved by default; overwriting requires an explicit
+  choice.
 - The kit writes only the block between:
   `<!-- CODING_AGENT_KIT_START ... -->` and
   `<!-- CODING_AGENT_KIT_END -->`.
@@ -243,15 +247,15 @@ The Codex installer is designed for machines that already have Codex configured.
 - Codex may need a restart or new session to load new global guidance, skills,
   or plugin metadata.
 
-Optional plugin install:
+Plugin install from the command line:
 
 ```bash
 codex plugin add coding-agent-kit@personal
 ```
 
-Use this when you want the plugin to appear as installed/enabled in Codex or
-when you want to share it from the Codex app. The direct personal skills are
-already installed by `coding-agent-kit install --target codex`.
+Use this when you use the `codex` command and want the plugin to appear as
+installed/enabled there. Codex app and IDE extension users can use the direct
+personal skills installed by `coding-agent-kit install --target codex`.
 
 ---
 
@@ -266,7 +270,8 @@ coding-agent-kit update --target opencode
 For Codex, `update` refreshes the managed AGENTS block, managed skills, local
 plugin files, and marketplace entry.
 
-If you installed the Codex plugin, refresh its local cache after update:
+If you installed the Codex plugin through the CLI, refresh its local cache
+after update:
 
 ```bash
 codex plugin add coding-agent-kit@personal

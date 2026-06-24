@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.2] - 2026-06-24
+
+### Changed
+
+- Improved Codex install UX for existing `~/.codex/AGENTS.md` files with
+  append, overwrite, and cancel choices.
+- Broadened Codex detection to include command, app, IDE extension, and config
+  signals.
+- Clarified README guidance for Codex app, IDE extension, and command-line
+  plugin usage.
+
 ## [1.0.1] - 2026-06-24
 
 ### Changed

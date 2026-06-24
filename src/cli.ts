@@ -41,6 +41,16 @@ type CommandOptions = {
   force: boolean
 }
 
+type CodexAgentsAction = "created" | "updated" | "appended" | "overwritten"
+
+type CodexAgentsPlan = {
+  path: string
+  action: CodexAgentsAction
+  block: string
+  content: string
+  existingBlock: { start: number; end: number } | null
+}
+
 const LANG_LABELS: Record<Lang, string> = {
   en: "English",
   vi: "Tiếng Việt",
@@ -312,6 +322,88 @@ function getOpencodeInstallHint(): string {
   return "  npm install -g opencode-ai"
 }
 
+function findCodexIdeExtensions(): string[] {
+  const roots = [
+    { label: "VS Code extension", path: join(homedir(), ".vscode", "extensions") },
+    { label: "VS Code Insiders extension", path: join(homedir(), ".vscode-insiders", "extensions") },
+    { label: "Cursor extension", path: join(homedir(), ".cursor", "extensions") },
+    { label: "Windsurf extension", path: join(homedir(), ".windsurf", "extensions") },
+  ]
+
+  const found: string[] = []
+
+  for (const root of roots) {
+    if (!existsSync(root.path)) continue
+
+    let entries: string[]
+    try {
+      entries = readdirSync(root.path)
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(root.path, entry)
+      try {
+        if (!statSync(entryPath).isDirectory()) continue
+      } catch {
+        continue
+      }
+
+      const entryName = entry.toLowerCase()
+      if (entryName.includes("openai") && (entryName.includes("codex") || entryName.includes("chatgpt"))) {
+        found.push(root.label)
+        break
+      }
+
+      const packagePath = join(entryPath, "package.json")
+      if (!existsSync(packagePath)) continue
+
+      try {
+        const pkg = readJsonFile(packagePath)
+        if (!isRecord(pkg)) continue
+
+        const publisher = typeof pkg.publisher === "string" ? pkg.publisher.toLowerCase() : ""
+        const name = typeof pkg.name === "string" ? pkg.name.toLowerCase() : ""
+        const displayName = typeof pkg.displayName === "string" ? pkg.displayName.toLowerCase() : ""
+        const description = typeof pkg.description === "string" ? pkg.description.toLowerCase() : ""
+        const metadata = `${publisher} ${name} ${displayName} ${description}`
+
+        if (
+          publisher === "openai" &&
+          (metadata.includes("codex") || metadata.includes("chatgpt"))
+        ) {
+          found.push(root.label)
+          break
+        }
+      } catch {
+        // Ignore malformed extension manifests during best-effort detection.
+      }
+    }
+  }
+
+  return found
+}
+
+function detectCodex(): string[] {
+  const detected: string[] = []
+  if (checkTool("codex").installed) detected.push("command")
+
+  if (platform() === "darwin") {
+    const appPaths = [
+      "/Applications/Codex.app",
+      join(homedir(), "Applications", "Codex.app"),
+    ]
+    if (appPaths.some(path => existsSync(path))) detected.push("app")
+  }
+
+  detected.push(...findCodexIdeExtensions())
+
+  if (existsSync(CODEX_HOME)) detected.push("config")
+
+  return [...new Set(detected)]
+}
+
 // ─── Codex managed files ─────────────────────────────────────────────────────
 
 function findCodexManagedBlock(content: string): { start: number; end: number } | null {
@@ -332,26 +424,120 @@ function buildCodexManagedBlock(lang: Lang): string {
   return `${codexManagedStart(lang)}\n${body}\n${CODEX_MANAGED_END}`
 }
 
-function upsertCodexAgentsBlock(lang: Lang, dryRun = false): "created" | "updated" | "appended" {
+function countLines(content: string): number {
+  if (content.length === 0) return 0
+  return content.replace(/\n$/, "").split("\n").length
+}
+
+function firstLine(content: string): string {
+  return content.split(/\r?\n/, 1)[0] ?? ""
+}
+
+function getCodexAgentsPlan(lang: Lang): CodexAgentsPlan {
   const agentsPath = join(CODEX_HOME, "AGENTS.md")
   const block = buildCodexManagedBlock(lang)
 
   if (!existsSync(agentsPath)) {
-    writeTextFile(agentsPath, `${block}\n`, dryRun)
-    return "created"
+    return {
+      path: agentsPath,
+      action: "created",
+      block,
+      content: "",
+      existingBlock: null,
+    }
   }
 
   const content = readFileSync(agentsPath, "utf-8")
   const existing = findCodexManagedBlock(content)
-  if (existing) {
-    const updated = content.slice(0, existing.start) + block + content.slice(existing.end)
-    writeTextFile(agentsPath, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
-    return "updated"
+  return {
+    path: agentsPath,
+    action: existing ? "updated" : "appended",
+    block,
+    content,
+    existingBlock: existing,
+  }
+}
+
+function applyCodexAgentsPlan(plan: CodexAgentsPlan, dryRun = false): CodexAgentsAction {
+  if (plan.action === "created" || plan.action === "overwritten") {
+    writeTextFile(plan.path, `${plan.block}\n`, dryRun)
+    return plan.action
   }
 
-  const separator = content.endsWith("\n") ? "\n" : "\n\n"
-  writeTextFile(agentsPath, `${content}${separator}${block}\n`, dryRun)
-  return "appended"
+  if (plan.action === "updated" && plan.existingBlock) {
+    const updated = plan.content.slice(0, plan.existingBlock.start) +
+      plan.block +
+      plan.content.slice(plan.existingBlock.end)
+    writeTextFile(plan.path, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
+    return plan.action
+  }
+
+  const separator = plan.content.endsWith("\n") ? "\n" : "\n\n"
+  writeTextFile(plan.path, `${plan.content}${separator}${plan.block}\n`, dryRun)
+  return plan.action
+}
+
+function describeCodexAgentsPlan(plan: CodexAgentsPlan) {
+  console.log(chalk.bold("\nCodex AGENTS.md:"))
+  console.log(`  Path: ${chalk.cyan(plan.path)}`)
+
+  if (plan.action === "created") {
+    console.log("  Action: create managed file")
+    console.log(`  New block: ${countLines(plan.block)} lines`)
+    return
+  }
+
+  if (plan.action === "overwritten") {
+    console.log(chalk.yellow("  Action: overwrite existing file"))
+    console.log(`  Existing content: replaced (${countLines(plan.content)} lines)`)
+    console.log(`  New file: managed block only (${countLines(plan.block)} lines)`)
+    return
+  }
+
+  if (plan.action === "updated" && plan.existingBlock) {
+    const oldBlock = plan.content.slice(plan.existingBlock.start, plan.existingBlock.end)
+    console.log("  Action: replace existing coding-agent-kit block")
+    console.log(`  Old: ${chalk.dim(firstLine(oldBlock))}`)
+    console.log(`  New: ${chalk.dim(firstLine(plan.block))}`)
+    console.log("  Existing content outside the block will be preserved.")
+    return
+  }
+
+  const existingLines = countLines(plan.content)
+  console.log(existingLines > 0
+    ? "  Action: append managed block to existing file"
+    : "  Action: add managed block to empty file")
+  console.log(`  Existing content: preserved (${existingLines} lines)`)
+  console.log(`  New block: appended at the end (${countLines(plan.block)} lines)`)
+}
+
+function getCodexAgentsConfirmQuestion(plan: CodexAgentsPlan): string {
+  if (plan.action === "overwritten") return "Overwrite existing AGENTS.md and continue?"
+  if (plan.action === "updated") return "Replace the existing coding-agent-kit block and continue?"
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    return "Append the coding-agent-kit block to existing AGENTS.md and continue?"
+  }
+  return "Continue?"
+}
+
+async function resolveCodexAgentsPlanForWrite(plan: CodexAgentsPlan): Promise<CodexAgentsPlan | null> {
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    console.log("\nExisting AGENTS.md has content. Choose an action:")
+    console.log(`  ${chalk.cyan("1.")} Append managed block ${chalk.dim("(recommended; preserves existing content)")}`)
+    console.log(`  ${chalk.cyan("2.")} Overwrite AGENTS.md ${chalk.dim("(replaces existing content)")}`)
+    console.log(`  ${chalk.cyan("3.")} Cancel`)
+
+    const answer = (await ask("> ")).toLowerCase()
+    if (answer === "" || answer === "1" || answer === "a" || answer === "append") return plan
+    if (answer === "2" || answer === "o" || answer === "overwrite") {
+      const overwritePlan = { ...plan, action: "overwritten" as const }
+      describeCodexAgentsPlan(overwritePlan)
+      return overwritePlan
+    }
+    return null
+  }
+
+  return await confirm(getCodexAgentsConfirmQuestion(plan), true) ? plan : null
 }
 
 function getCodexManagedLang(): Lang | null {
@@ -553,30 +739,35 @@ async function cmdInstallOpencode(options: CommandOptions) {
 async function cmdInstallCodex(options: CommandOptions) {
   console.log(chalk.bold(`\n🚀 ${CLI_NAME} — Codex installer\n`))
 
-  const spinner = ora("Checking Codex CLI...").start()
-  const { installed, version } = checkTool("codex")
-  if (installed) {
-    spinner.succeed(`Codex CLI is installed ${chalk.dim(version ?? "")}`)
+  const codexDetected = detectCodex()
+  if (codexDetected.length > 0) {
+    console.log(chalk.dim(`Codex detected: ${codexDetected.join(", ")}`))
   } else {
-    spinner.warn("Codex CLI was not found. Continuing because Codex app can still use the installed files.")
+    console.log(chalk.dim("Codex not detected."))
   }
 
   const lang = await resolveLang(options.lang)
+  let agentsPlan = getCodexAgentsPlan(lang)
   console.log(chalk.dim(`\nLanguage: ${LANG_LABELS[lang]}`))
   console.log("\nWill install Codex kit into:")
   console.log(`  ${chalk.cyan(join(CODEX_HOME, "AGENTS.md"))} (managed block only)`)
   console.log(`  ${chalk.cyan(CODEX_SKILLS_DIR)}`)
   console.log(`  ${chalk.cyan(CODEX_PLUGIN_DEST)}`)
   console.log(`  ${chalk.cyan(CODEX_MARKETPLACE_PATH)}\n`)
+  describeCodexAgentsPlan(agentsPlan)
 
   if (options.dryRun) {
     console.log(chalk.yellow("Dry run: no files will be written.\n"))
-  } else if (!await confirm("Continue?", true)) {
-    console.log(chalk.dim("Cancelled."))
-    process.exit(0)
+  } else {
+    const selectedPlan = await resolveCodexAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
   }
 
-  const agentsAction = upsertCodexAgentsBlock(lang, options.dryRun)
+  const agentsAction = applyCodexAgentsPlan(agentsPlan, options.dryRun)
   console.log(chalk.green("  ✓") + `  AGENTS.md managed block (${agentsAction})`)
 
   const skills = copyCodexSkills(options.force, options.dryRun)
@@ -595,7 +786,7 @@ async function cmdInstallCodex(options: CommandOptions) {
   console.log("Next steps:")
   console.log(`  ${chalk.cyan("1.")} Restart Codex or start a new Codex session`)
   console.log(`  ${chalk.cyan("2.")} Use ${chalk.bold("$coding-agent-scan-project")} to initialize an existing project`)
-  console.log(`  ${chalk.cyan("3.")} Optional: install the plugin from Codex Plugins or run ${chalk.bold("codex plugin add coding-agent-kit@personal")}\n`)
+  console.log(`  ${chalk.cyan("3.")} Enable the plugin from Codex Plugins when needed, or run ${chalk.bold("codex plugin add coding-agent-kit@personal")} when using the command\n`)
 }
 
 // ─── Commands: update ────────────────────────────────────────────────────────
@@ -653,15 +844,21 @@ async function cmdUpdateCodex(options: CommandOptions) {
 
   const currentLang = getCodexManagedLang()
   const lang = options.lang ? await resolveLang(options.lang) : currentLang ?? "en"
+  let agentsPlan = getCodexAgentsPlan(lang)
+  describeCodexAgentsPlan(agentsPlan)
 
   if (options.dryRun) {
     console.log(chalk.yellow("Dry run: no files will be written.\n"))
-  } else if (!await confirm("Continue?", true)) {
-    console.log(chalk.dim("Cancelled."))
-    process.exit(0)
+  } else {
+    const selectedPlan = await resolveCodexAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
   }
 
-  const agentsAction = upsertCodexAgentsBlock(lang, options.dryRun)
+  const agentsAction = applyCodexAgentsPlan(agentsPlan, options.dryRun)
   console.log(chalk.green("  ✓") + `  AGENTS.md managed block (${agentsAction})`)
 
   const skills = copyCodexSkills(options.force, options.dryRun)
@@ -677,7 +874,7 @@ async function cmdUpdateCodex(options: CommandOptions) {
   console.log(chalk.green("  ✓") + `  marketplace (${marketplaceAction})`)
 
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
-  console.log(`If you installed the plugin, refresh its cache with: ${chalk.bold("codex plugin add coding-agent-kit@personal")}\n`)
+  console.log(`If you installed the plugin with the codex command, refresh its cache with: ${chalk.bold("codex plugin add coding-agent-kit@personal")}\n`)
 }
 
 // ─── Commands: status ────────────────────────────────────────────────────────
@@ -741,10 +938,10 @@ async function cmdStatusOpencode() {
 async function cmdStatusCodex() {
   console.log(chalk.bold(`\n📋 ${CLI_NAME} — Codex status\n`))
 
-  const { installed, version } = checkTool("codex")
-  console.log("Codex CLI: " + (installed
-    ? chalk.green(`✓ installed ${chalk.dim(version ?? "")}`)
-    : chalk.yellow("not found")))
+  const codexDetected = detectCodex()
+  console.log("Codex: " + (codexDetected.length > 0
+    ? chalk.green(`✓ detected ${chalk.dim(`(${codexDetected.join(", ")})`)}`)
+    : chalk.yellow("not detected")))
 
   const skillNames = existsSync(join(CODEX_DIR, "plugin", "skills"))
     ? readdirSync(join(CODEX_DIR, "plugin", "skills")).filter(name => statSync(join(CODEX_DIR, "plugin", "skills", name)).isDirectory())
@@ -848,7 +1045,7 @@ ${chalk.bold("Commands:")}
 
 ${chalk.bold("Options:")}
   ${chalk.cyan("--lang")} <${langList}>  Select language without prompting
-  ${chalk.cyan("--target")} <target>    Target one platform; "all" is intentionally unsupported
+  ${chalk.cyan("--target")} <target>    Target one platform
   ${chalk.cyan("--dry-run")}            Preview changes without writing files
   ${chalk.cyan("--force")}              Overwrite conflicting managed files where supported
 

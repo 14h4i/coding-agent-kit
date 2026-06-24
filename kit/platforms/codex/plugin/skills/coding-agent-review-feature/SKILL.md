@@ -7,7 +7,7 @@ description: >
   produce a manual test checklist.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.1 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.2 -->
 
 ## Prerequisites
 

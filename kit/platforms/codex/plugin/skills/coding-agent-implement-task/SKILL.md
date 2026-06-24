@@ -6,7 +6,7 @@ description: >
   Implement exactly one task, verify it, mark it done, and stop for review.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.1 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.2 -->
 
 ## Prerequisites
 

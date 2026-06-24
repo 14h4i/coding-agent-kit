@@ -1,6 +1,6 @@
 {
   "name": "coding-agent-kit",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Setup kit for coding agents — install structured workflows for Codex and opencode",
   "type": "module",
   "bin": {

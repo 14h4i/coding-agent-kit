@@ -7,7 +7,7 @@ description: >
   passes a concrete context object for generating a project skill.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.1 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.2 -->
 
 ## Modes
 
