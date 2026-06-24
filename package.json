@@ -1,0 +1,51 @@
+{
+  "name": "coding-agent-kit",
+  "version": "1.0.0",
+  "description": "Setup kit for coding agents — install structured workflows for Codex and opencode",
+  "type": "module",
+  "bin": {
+    "coding-agent-kit": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "kit"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "codex",
+    "opencode",
+    "coding-agent-kit",
+    "ai",
+    "coding-agent",
+    "agent-skills",
+    "cli",
+    "llm",
+    "developer-tools"
+  ],
+  "author": "14h4i",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/14h4i/coding-agent-kit.git"
+  },
+  "homepage": "https://github.com/14h4i/coding-agent-kit#readme",
+  "bugs": {
+    "url": "https://github.com/14h4i/coding-agent-kit/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "chalk": "^5.3.0",
+    "ora": "^8.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
