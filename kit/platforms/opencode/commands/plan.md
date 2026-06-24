@@ -3,6 +3,8 @@ description: Turn an approved design (or clear spec) into a concrete implementat
 agent: plan
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 Use the `coding-agent-write-plan` skill to create an implementation plan.
 
 Requirements:

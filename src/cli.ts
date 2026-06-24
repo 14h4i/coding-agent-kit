@@ -1,7 +1,7 @@
 import { spawnSync } from "child_process"
 import {
   existsSync, mkdirSync, copyFileSync,
-  readdirSync, statSync, readFileSync, writeFileSync
+  readdirSync, statSync, readFileSync, writeFileSync, rmSync
 } from "fs"
 import { join, dirname } from "path"
 import { fileURLToPath } from "url"
@@ -41,14 +41,22 @@ type CommandOptions = {
   force: boolean
 }
 
-type CodexAgentsAction = "created" | "updated" | "appended" | "overwritten"
+type AgentsAction = "created" | "updated" | "appended" | "overwritten"
 
-type CodexAgentsPlan = {
+type AgentsPlan = {
   path: string
-  action: CodexAgentsAction
+  action: AgentsAction
   block: string
   content: string
   existingBlock: { start: number; end: number } | null
+}
+
+type StatusItem = {
+  label: string
+  ok: boolean
+  version?: string | null
+  stale?: boolean
+  note?: string
 }
 
 const LANG_LABELS: Record<Lang, string> = {
@@ -64,9 +72,15 @@ const LANG_LABELS: Record<Lang, string> = {
 
 const COMMUNICATION_START = "<!-- COMMUNICATION_START -->"
 const COMMUNICATION_END = "<!-- COMMUNICATION_END -->"
+const MANAGED_END = "<!-- CODING_AGENT_KIT_END -->"
 const CODEX_MANAGED_START_PREFIX = "<!-- CODING_AGENT_KIT_START target=codex"
-const CODEX_MANAGED_END = "<!-- CODING_AGENT_KIT_END -->"
+const OPENCODE_MANAGED_START_PREFIX = "<!-- CODING_AGENT_KIT_START target=opencode"
+const CODEX_MANAGED_END = MANAGED_END
 const CODEX_SKILL_MARKER = "CODING_AGENT_KIT_MANAGED"
+const OPENCODE_SKILL_MARKER = "CODING_AGENT_KIT_MANAGED"
+const OPENCODE_COMMAND_MARKER = "CODING_AGENT_KIT_MANAGED"
+const NPM_LATEST_CACHE_PATH = join(homedir(), ".cache", CLI_NAME, "npm-latest.json")
+const NPM_LATEST_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -121,6 +135,140 @@ function getPackageVersion(): string {
   }
 }
 
+function parseVersion(value: string | null | undefined): number[] | null {
+  if (!value || value === "unknown") return null
+  const main = value.split(/[+-]/, 1)[0]
+  const parts = main.split(".").map(part => Number(part))
+  if (parts.length === 0 || parts.some(part => !Number.isInteger(part) || part < 0)) return null
+  while (parts.length < 3) parts.push(0)
+  return parts.slice(0, 3)
+}
+
+function compareVersions(a: string | null | undefined, b: string | null | undefined): number | null {
+  const left = parseVersion(a)
+  const right = parseVersion(b)
+  if (!left || !right) return null
+
+  for (let i = 0; i < 3; i += 1) {
+    if (left[i] < right[i]) return -1
+    if (left[i] > right[i]) return 1
+  }
+  return 0
+}
+
+function isStaleVersion(installed: string | null | undefined): boolean {
+  const current = getPackageVersion()
+  if (!installed) return true
+  return compareVersions(installed, current) === -1
+}
+
+function extractVersion(text: string): string | null {
+  const match = text.match(/version=([0-9]+(?:\.[0-9]+){0,2}(?:[-+][A-Za-z0-9.-]+)?)/)
+  return match?.[1] ?? null
+}
+
+function findManagedBlock(content: string, startPrefix: string): { start: number; end: number } | null {
+  const start = content.indexOf(startPrefix)
+  if (start === -1) return null
+  const end = content.indexOf(MANAGED_END, start)
+  if (end === -1) return null
+  return { start, end: end + MANAGED_END.length }
+}
+
+function getManagedBlockVersion(content: string, startPrefix: string): string | null {
+  const block = findManagedBlock(content, startPrefix)
+  if (!block) return null
+  const startLineEnd = content.indexOf("\n", block.start)
+  const startLine = content.slice(block.start, startLineEnd === -1 ? block.end : startLineEnd)
+  return extractVersion(startLine)
+}
+
+function getManagedFileVersion(path: string): string | null {
+  if (!existsSync(path)) return null
+  try {
+    return extractVersion(readFileSync(path, "utf-8"))
+  } catch {
+    return null
+  }
+}
+
+function safeRemovePath(path: string, dryRun = false): boolean {
+  if (!existsSync(path)) return false
+  if (!dryRun) rmSync(path, { recursive: true, force: true })
+  return true
+}
+
+function removeManagedBlockFromContent(
+  content: string,
+  block: { start: number; end: number }
+): string {
+  const before = content.slice(0, block.start).replace(/\n{0,2}$/, "")
+  const after = content.slice(block.end).replace(/^\n{0,2}/, "")
+  const next = before && after ? `${before}\n\n${after}` : `${before}${after}`
+  return next.trim() === "" ? "" : next.endsWith("\n") ? next : `${next}\n`
+}
+
+function removeManagedBlockFromFile(
+  path: string,
+  startPrefix: string,
+  dryRun = false
+): "removed" | "updated" | "missing" {
+  if (!existsSync(path)) return "missing"
+  const content = readFileSync(path, "utf-8")
+  const block = findManagedBlock(content, startPrefix)
+  if (!block) return "missing"
+  const next = removeManagedBlockFromContent(content, block)
+  if (next.trim() === "") {
+    if (!dryRun) rmSync(path, { force: true })
+    return "removed"
+  }
+  writeTextFile(path, next, dryRun)
+  return "updated"
+}
+
+function getCacheAgeMs(path: string): number | null {
+  try {
+    return Date.now() - statSync(path).mtimeMs
+  } catch {
+    return null
+  }
+}
+
+async function getLatestNpmVersion(): Promise<string | null> {
+  const cacheAge = existsSync(NPM_LATEST_CACHE_PATH) ? getCacheAgeMs(NPM_LATEST_CACHE_PATH) : null
+  if (cacheAge !== null && cacheAge < NPM_LATEST_CACHE_TTL_MS) {
+    try {
+      const cached = readJsonFile(NPM_LATEST_CACHE_PATH)
+      if (isRecord(cached) && typeof cached.version === "string") return cached.version
+    } catch {
+      // Ignore corrupt cache and try the registry.
+    }
+  }
+
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    const controller = new AbortController()
+    timeout = setTimeout(() => controller.abort(), 1500)
+    const response = await fetch(`https://registry.npmjs.org/${CLI_NAME}/latest`, {
+      headers: { accept: "application/json" },
+      signal: controller.signal,
+    })
+    if (!response.ok) return null
+    const body: unknown = await response.json()
+    if (!isRecord(body) || typeof body.version !== "string") return null
+    try {
+      writeJsonFile(NPM_LATEST_CACHE_PATH, { version: body.version, checkedAt: new Date().toISOString() })
+    } catch {
+      // Cache writes are best-effort; status should still show the fetched version.
+    }
+    return body.version
+  } catch {
+    return null
+  } finally {
+    if (timeout) clearTimeout(timeout)
+  }
+}
+
 function copyDir(src: string, dest: string, overwrite = false, dryRun = false): string[] {
   const copied: string[] = []
   if (!dryRun && !existsSync(dest)) mkdirSync(dest, { recursive: true })
@@ -138,6 +286,21 @@ function copyDir(src: string, dest: string, overwrite = false, dryRun = false): 
     }
   }
   return copied
+}
+
+function listDirNames(path: string): string[] {
+  if (!existsSync(path)) return []
+  return readdirSync(path)
+    .filter(name => statSync(join(path, name)).isDirectory())
+    .sort()
+}
+
+function listFileNames(path: string, suffix = ""): string[] {
+  if (!existsSync(path)) return []
+  return readdirSync(path)
+    .filter(name => statSync(join(path, name)).isFile())
+    .filter(name => suffix === "" || name.endsWith(suffix))
+    .sort()
 }
 
 function mergeJson(destPath: string, srcPath: string, dryRun = false) {
@@ -447,7 +610,7 @@ function firstLine(content: string): string {
   return content.split(/\r?\n/, 1)[0] ?? ""
 }
 
-function getCodexAgentsPlan(lang: Lang): CodexAgentsPlan {
+function getCodexAgentsPlan(lang: Lang): AgentsPlan {
   const agentsPath = join(CODEX_HOME, "AGENTS.md")
   const block = buildCodexManagedBlock(lang)
 
@@ -472,7 +635,7 @@ function getCodexAgentsPlan(lang: Lang): CodexAgentsPlan {
   }
 }
 
-function applyCodexAgentsPlan(plan: CodexAgentsPlan, dryRun = false): CodexAgentsAction {
+function applyCodexAgentsPlan(plan: AgentsPlan, dryRun = false): AgentsAction {
   if (plan.action === "created" || plan.action === "overwritten") {
     writeTextFile(plan.path, `${plan.block}\n`, dryRun)
     return plan.action
@@ -491,7 +654,7 @@ function applyCodexAgentsPlan(plan: CodexAgentsPlan, dryRun = false): CodexAgent
   return plan.action
 }
 
-function describeCodexAgentsPlan(plan: CodexAgentsPlan) {
+function describeCodexAgentsPlan(plan: AgentsPlan) {
   console.log(chalk.bold("\nCodex AGENTS.md:"))
   console.log(`  Path: ${chalk.cyan(plan.path)}`)
 
@@ -525,7 +688,7 @@ function describeCodexAgentsPlan(plan: CodexAgentsPlan) {
   console.log(`  New block: appended at the end (${countLines(plan.block)} lines)`)
 }
 
-function getCodexAgentsConfirmQuestion(plan: CodexAgentsPlan): string {
+function getCodexAgentsConfirmQuestion(plan: AgentsPlan): string {
   if (plan.action === "overwritten") return "Overwrite existing AGENTS.md and continue?"
   if (plan.action === "updated") return "Replace the existing coding-agent-kit block and continue?"
   if (plan.action === "appended" && plan.content.trim() !== "") {
@@ -534,7 +697,7 @@ function getCodexAgentsConfirmQuestion(plan: CodexAgentsPlan): string {
   return "Continue?"
 }
 
-async function resolveCodexAgentsPlanForWrite(plan: CodexAgentsPlan): Promise<CodexAgentsPlan | null> {
+async function resolveCodexAgentsPlanForWrite(plan: AgentsPlan): Promise<AgentsPlan | null> {
   if (plan.action === "appended" && plan.content.trim() !== "") {
     console.log("\nExisting AGENTS.md has content. Choose an action:")
     console.log(`  ${chalk.cyan("1.")} Append managed block ${chalk.dim("(recommended; preserves existing content)")}`)
@@ -579,6 +742,159 @@ function setCodexLang(lang: Lang, dryRun = false): boolean {
   const blockContent = content.slice(block.start, block.end)
   const withoutOldStart = blockContent.replace(/^<!-- CODING_AGENT_KIT_START target=codex[^\n]* -->/, codexManagedStart(lang))
   const updatedBlock = applyLanguageOverlayToContent(withoutOldStart, lang, join(CODEX_DIR, "AGENTS.md"))
+  const updated = content.slice(0, block.start) + updatedBlock + content.slice(block.end)
+  writeTextFile(agentsPath, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
+  return true
+}
+
+// ─── opencode managed files ───────────────────────────────────────────────────
+
+function findOpencodeManagedBlock(content: string): { start: number; end: number } | null {
+  return findManagedBlock(content, OPENCODE_MANAGED_START_PREFIX)
+}
+
+function opencodeManagedStart(lang: Lang): string {
+  return `<!-- CODING_AGENT_KIT_START target=opencode version=${getPackageVersion()} lang=${lang} -->`
+}
+
+function buildOpencodeManagedBlock(lang: Lang): string {
+  const base = readFileSync(join(OPENCODE_DIR, "AGENTS.md"), "utf-8")
+  const body = applyLanguageOverlayToContent(base, lang, join(OPENCODE_DIR, "AGENTS.md")).trim()
+  return `${opencodeManagedStart(lang)}\n${body}\n${MANAGED_END}`
+}
+
+function getOpencodeAgentsPlan(lang: Lang): AgentsPlan {
+  const agentsPath = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
+  const block = buildOpencodeManagedBlock(lang)
+
+  if (!existsSync(agentsPath)) {
+    return {
+      path: agentsPath,
+      action: "created",
+      block,
+      content: "",
+      existingBlock: null,
+    }
+  }
+
+  const content = readFileSync(agentsPath, "utf-8")
+  const existing = findOpencodeManagedBlock(content)
+  return {
+    path: agentsPath,
+    action: existing ? "updated" : "appended",
+    block,
+    content,
+    existingBlock: existing,
+  }
+}
+
+function applyOpencodeAgentsPlan(plan: AgentsPlan, dryRun = false): AgentsAction {
+  if (plan.action === "created" || plan.action === "overwritten") {
+    writeTextFile(plan.path, `${plan.block}\n`, dryRun)
+    return plan.action
+  }
+
+  if (plan.action === "updated" && plan.existingBlock) {
+    const updated = plan.content.slice(0, plan.existingBlock.start) +
+      plan.block +
+      plan.content.slice(plan.existingBlock.end)
+    writeTextFile(plan.path, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
+    return plan.action
+  }
+
+  const separator = plan.content.endsWith("\n") ? "\n" : "\n\n"
+  writeTextFile(plan.path, `${plan.content}${separator}${plan.block}\n`, dryRun)
+  return plan.action
+}
+
+function describeOpencodeAgentsPlan(plan: AgentsPlan) {
+  console.log(chalk.bold("\nopencode AGENTS.md:"))
+  console.log(`  Path: ${chalk.cyan(plan.path)}`)
+
+  if (plan.action === "created") {
+    console.log("  Action: create managed file")
+    console.log(`  New block: ${countLines(plan.block)} lines`)
+    return
+  }
+
+  if (plan.action === "overwritten") {
+    console.log(chalk.yellow("  Action: overwrite existing file"))
+    console.log(`  Existing content: replaced (${countLines(plan.content)} lines)`)
+    console.log(`  New file: managed block only (${countLines(plan.block)} lines)`)
+    return
+  }
+
+  if (plan.action === "updated" && plan.existingBlock) {
+    const oldBlock = plan.content.slice(plan.existingBlock.start, plan.existingBlock.end)
+    console.log("  Action: replace existing coding-agent-kit block")
+    console.log(`  Old: ${chalk.dim(firstLine(oldBlock))}`)
+    console.log(`  New: ${chalk.dim(firstLine(plan.block))}`)
+    console.log("  Existing content outside the block will be preserved.")
+    return
+  }
+
+  const existingLines = countLines(plan.content)
+  console.log(existingLines > 0
+    ? "  Action: append managed block to existing file"
+    : "  Action: add managed block to empty file")
+  console.log(`  Existing content: preserved (${existingLines} lines)`)
+  console.log(`  New block: appended at the end (${countLines(plan.block)} lines)`)
+}
+
+function getOpencodeAgentsConfirmQuestion(plan: AgentsPlan): string {
+  if (plan.action === "overwritten") return "Overwrite existing AGENTS.md and continue?"
+  if (plan.action === "updated") return "Replace the existing coding-agent-kit block and continue?"
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    return "Append the coding-agent-kit block to existing AGENTS.md and continue?"
+  }
+  return "Continue?"
+}
+
+async function resolveOpencodeAgentsPlanForWrite(plan: AgentsPlan): Promise<AgentsPlan | null> {
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    console.log("\nExisting AGENTS.md has content. Choose an action:")
+    console.log(`  ${chalk.cyan("1.")} Append managed block ${chalk.dim("(recommended; preserves existing content)")}`)
+    console.log(`  ${chalk.cyan("2.")} Overwrite AGENTS.md ${chalk.dim("(replaces existing content)")}`)
+    console.log(`  ${chalk.cyan("3.")} Cancel`)
+
+    const answer = (await ask("> ")).toLowerCase()
+    if (answer === "" || answer === "1" || answer === "a" || answer === "append") return plan
+    if (answer === "2" || answer === "o" || answer === "overwrite") {
+      const overwritePlan = { ...plan, action: "overwritten" as const }
+      describeOpencodeAgentsPlan(overwritePlan)
+      return overwritePlan
+    }
+    return null
+  }
+
+  return await confirm(getOpencodeAgentsConfirmQuestion(plan), true) ? plan : null
+}
+
+function getOpencodeManagedLang(): Lang | null {
+  const agentsPath = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
+  if (!existsSync(agentsPath)) return null
+  const content = readFileSync(agentsPath, "utf-8")
+  const block = findOpencodeManagedBlock(content)
+  if (!block) return null
+  const startLineEnd = content.indexOf("\n", block.start)
+  const startLine = content.slice(block.start, startLineEnd === -1 ? block.end : startLineEnd)
+  const match = startLine.match(/lang=([a-z]{2})/)
+  if (match && (SUPPORTED_LANGS as readonly string[]).includes(match[1])) {
+    return match[1] as Lang
+  }
+  return detectLangFromContent(content.slice(block.start, block.end))
+}
+
+function setOpencodeLang(lang: Lang, dryRun = false): boolean {
+  const agentsPath = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
+  if (!existsSync(agentsPath)) return false
+  const content = readFileSync(agentsPath, "utf-8")
+  const block = findOpencodeManagedBlock(content)
+  if (!block) return false
+
+  const blockContent = content.slice(block.start, block.end)
+  const withoutOldStart = blockContent.replace(/^<!-- CODING_AGENT_KIT_START target=opencode[^\n]* -->/, opencodeManagedStart(lang))
+  const updatedBlock = applyLanguageOverlayToContent(withoutOldStart, lang, join(OPENCODE_DIR, "AGENTS.md"))
   const updated = content.slice(0, block.start) + updatedBlock + content.slice(block.end)
   writeTextFile(agentsPath, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
   return true
@@ -724,36 +1040,30 @@ async function cmdInstallOpencode(options: CommandOptions) {
   spinner.succeed(`opencode is installed ${chalk.dim(version ?? "")}`)
 
   const lang = await resolveLang(options.lang)
+  let agentsPlan = getOpencodeAgentsPlan(lang)
   console.log(chalk.dim(`\nLanguage: ${LANG_LABELS[lang]}`))
-  console.log(`\nWill install opencode kit into: ${chalk.cyan(OPENCODE_CONFIG_DIR)}\n`)
+  console.log("\nWill install opencode kit into:")
+  console.log(`  ${chalk.cyan(join(OPENCODE_CONFIG_DIR, "AGENTS.md"))} (managed block only)`)
+  console.log(`  ${chalk.cyan(join(OPENCODE_CONFIG_DIR, "opencode.json"))}`)
+  console.log(`  ${chalk.cyan(join(OPENCODE_CONFIG_DIR, "skills"))}`)
+  console.log(`  ${chalk.cyan(join(OPENCODE_CONFIG_DIR, "commands"))}\n`)
+  describeOpencodeAgentsPlan(agentsPlan)
 
   if (options.dryRun) {
     console.log(chalk.yellow("Dry run: no files will be written.\n"))
-  } else if (!await confirm("Continue?", true)) {
-    console.log(chalk.dim("Cancelled."))
-    process.exit(0)
+  } else {
+    const selectedPlan = await resolveOpencodeAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
   }
 
   if (!options.dryRun) mkdirSync(OPENCODE_CONFIG_DIR, { recursive: true })
 
-  const agentsDest = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
-  if (existsSync(agentsDest)) {
-    if (options.force || options.dryRun || await confirm(chalk.yellow("AGENTS.md already exists. Overwrite?"))) {
-      if (!options.dryRun) {
-        copyFileSync(join(OPENCODE_DIR, "AGENTS.md"), agentsDest)
-        applyLanguageOverlay(agentsDest, lang, join(OPENCODE_DIR, "AGENTS.md"))
-      }
-      console.log(chalk.green("  ✓") + "  AGENTS.md (overwritten)")
-    } else {
-      console.log(chalk.dim("  –  AGENTS.md skipped"))
-    }
-  } else {
-    if (!options.dryRun) {
-      copyFileSync(join(OPENCODE_DIR, "AGENTS.md"), agentsDest)
-      applyLanguageOverlay(agentsDest, lang, join(OPENCODE_DIR, "AGENTS.md"))
-    }
-    console.log(chalk.green("  ✓") + "  AGENTS.md")
-  }
+  const agentsAction = applyOpencodeAgentsPlan(agentsPlan, options.dryRun)
+  console.log(chalk.green("  ✓") + `  AGENTS.md managed block (${agentsAction})`)
 
   const jsonDest = join(OPENCODE_CONFIG_DIR, "opencode.json")
   const jsonSrc = join(OPENCODE_DIR, "opencode.json")
@@ -855,15 +1165,26 @@ async function cmdUpdateOpencode(options: CommandOptions) {
     process.exit(1)
   }
 
+  const currentLang = getOpencodeManagedLang()
+  const lang = options.lang ? await resolveLang(options.lang) : currentLang ?? "en"
+  let agentsPlan = getOpencodeAgentsPlan(lang)
   console.log(`Updating: ${chalk.cyan(OPENCODE_CONFIG_DIR)}\n`)
-  console.log(chalk.yellow("This will overwrite skills and commands. AGENTS.md and opencode.json keys are preserved.\n"))
+  console.log(chalk.yellow("This will overwrite kit skills and commands. Existing AGENTS.md content outside the managed block and opencode.json keys are preserved.\n"))
+  describeOpencodeAgentsPlan(agentsPlan)
 
   if (options.dryRun) {
     console.log(chalk.yellow("Dry run: no files will be written.\n"))
-  } else if (!await confirm("Continue?", true)) {
-    console.log(chalk.dim("Cancelled."))
-    process.exit(0)
+  } else {
+    const selectedPlan = await resolveOpencodeAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
   }
+
+  const agentsAction = applyOpencodeAgentsPlan(agentsPlan, options.dryRun)
+  console.log(chalk.green("  ✓") + `  AGENTS.md managed block (${agentsAction})`)
 
   const s = copyDir(join(OPENCODE_DIR, "skills"), join(OPENCODE_CONFIG_DIR, "skills"), true, options.dryRun)
   console.log(chalk.green("  ✓") + `  skills/ — ${s.length} files updated`)
@@ -875,15 +1196,6 @@ async function cmdUpdateOpencode(options: CommandOptions) {
   if (existsSync(jsonDest)) {
     mergeJson(jsonDest, join(OPENCODE_DIR, "opencode.json"), options.dryRun)
     console.log(chalk.green("  ✓") + "  opencode.json (merged new keys)")
-  }
-
-  if (options.lang) {
-    const lang = await resolveLang(options.lang)
-    const agentsDest = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
-    if (existsSync(agentsDest)) {
-      if (!options.dryRun) applyLanguageOverlay(agentsDest, lang, join(OPENCODE_DIR, "AGENTS.md"))
-      console.log(chalk.green("  ✓") + `  AGENTS.md Communication section updated (${LANG_LABELS[lang]})`)
-    }
   }
 
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
@@ -927,9 +1239,269 @@ async function cmdUpdateCodex(options: CommandOptions) {
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
 }
 
+// ─── Commands: uninstall ─────────────────────────────────────────────────────
+
+type RemoveResult = "removed" | "updated" | "missing" | "skipped"
+
+async function cmdUninstall(options: CommandOptions) {
+  const target = await resolveTarget(options.target)
+  if (target === "opencode") return cmdUninstallOpencode(options)
+  return cmdUninstallCodex(options)
+}
+
+function printRemoveResult(label: string, result: RemoveResult) {
+  if (result === "removed") {
+    console.log(chalk.green("  ✓") + `  ${label} removed`)
+    return
+  }
+  if (result === "updated") {
+    console.log(chalk.green("  ✓") + `  ${label} managed block removed`)
+    return
+  }
+  if (result === "skipped") {
+    console.log(chalk.yellow("  !") + `  ${label} skipped (not marked as managed by this kit)`)
+    return
+  }
+  console.log(chalk.dim("  –") + `  ${label} not found`)
+}
+
+function removeManagedDirectory(dirPath: string, markerFilePath: string, marker: string, dryRun = false): RemoveResult {
+  if (!existsSync(dirPath)) return "missing"
+  if (!existsSync(markerFilePath)) return "skipped"
+  const content = readFileSync(markerFilePath, "utf-8")
+  if (!content.includes(marker)) return "skipped"
+  safeRemovePath(dirPath, dryRun)
+  return "removed"
+}
+
+function removeManagedFile(path: string, marker: string, dryRun = false): RemoveResult {
+  if (!existsSync(path)) return "missing"
+  const content = readFileSync(path, "utf-8")
+  if (!content.includes(marker)) return "skipped"
+  safeRemovePath(path, dryRun)
+  return "removed"
+}
+
+function removeCodexMarketplaceEntry(dryRun = false): RemoveResult {
+  if (!existsSync(CODEX_MARKETPLACE_PATH)) return "missing"
+
+  const marketplace = readJsonFile(CODEX_MARKETPLACE_PATH)
+  if (!isRecord(marketplace) || !Array.isArray(marketplace.plugins)) return "skipped"
+
+  const plugins = marketplace.plugins
+  const nextPlugins = plugins.filter(plugin => !(isRecord(plugin) && plugin.name === PLUGIN_NAME))
+  if (nextPlugins.length === plugins.length) return "missing"
+
+  writeJsonFile(CODEX_MARKETPLACE_PATH, { ...marketplace, plugins: nextPlugins }, dryRun)
+  return "removed"
+}
+
+async function maybeRemoveCodexPluginRecord(dryRun = false) {
+  if (dryRun) {
+    console.log(chalk.dim(`  –  plugin record removal skipped during dry run`))
+    return
+  }
+
+  if (!checkTool("codex").installed) {
+    console.log(chalk.dim(`  –  plugin record not removed; run ${chalk.bold("codex plugin remove coding-agent-kit@personal")} later if needed`))
+    return
+  }
+
+  if (!process.stdin.isTTY) {
+    console.log(chalk.dim(`  –  plugin record not removed in non-interactive mode; run ${chalk.bold("codex plugin remove coding-agent-kit@personal")} later if needed`))
+    return
+  }
+
+  if (!await confirm("Remove the Codex plugin record now?", true)) {
+    console.log(chalk.dim(`  –  plugin record kept; run ${chalk.bold("codex plugin remove coding-agent-kit@personal")} later if needed`))
+    return
+  }
+
+  const result = spawnSync("codex", ["plugin", "remove", `${PLUGIN_NAME}@personal`], {
+    encoding: "utf-8",
+  })
+
+  if (result.status === 0) {
+    console.log(chalk.green("  ✓") + "  plugin record removed")
+    const output = `${result.stdout}${result.stderr}`.trim()
+    if (output) console.log(chalk.dim(output.split("\n").map(line => `     ${line}`).join("\n")))
+    return
+  }
+
+  console.log(chalk.yellow("  !") + "  plugin record remove failed")
+  const output = `${result.stderr}${result.stdout}`.trim()
+  if (output) console.log(chalk.dim(output.split("\n").map(line => `     ${line}`).join("\n")))
+  console.log(chalk.dim(`     You can retry with: codex plugin remove ${PLUGIN_NAME}@personal`))
+}
+
+async function cmdUninstallCodex(options: CommandOptions) {
+  console.log(chalk.bold(`\n🗑 ${CLI_NAME} — Codex uninstall\n`))
+  console.log("Will remove only coding-agent-kit managed Codex files and blocks.\n")
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be removed.\n"))
+  } else if (!await confirm("Remove coding-agent-kit managed Codex files?", false)) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  const agentsResult = removeManagedBlockFromFile(join(CODEX_HOME, "AGENTS.md"), CODEX_MANAGED_START_PREFIX, options.dryRun)
+  printRemoveResult("AGENTS.md", agentsResult)
+
+  for (const skillName of listDirNames(join(CODEX_DIR, "plugin", "skills"))) {
+    const skillDir = join(CODEX_SKILLS_DIR, skillName)
+    const result = removeManagedDirectory(skillDir, join(skillDir, "SKILL.md"), CODEX_SKILL_MARKER, options.dryRun)
+    printRemoveResult(`skills/${skillName}`, result)
+  }
+
+  printRemoveResult("plugin/coding-agent-kit", safeRemovePath(CODEX_PLUGIN_DEST, options.dryRun) ? "removed" : "missing")
+  printRemoveResult("marketplace entry", removeCodexMarketplaceEntry(options.dryRun))
+  await maybeRemoveCodexPluginRecord(options.dryRun)
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Uninstall complete.\n"))
+}
+
+async function cmdUninstallOpencode(options: CommandOptions) {
+  console.log(chalk.bold(`\n🗑 ${CLI_NAME} — opencode uninstall\n`))
+  console.log("Will remove only coding-agent-kit managed opencode files and blocks.\n")
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be removed.\n"))
+  } else if (!await confirm("Remove coding-agent-kit managed opencode files?", false)) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  const agentsResult = removeManagedBlockFromFile(join(OPENCODE_CONFIG_DIR, "AGENTS.md"), OPENCODE_MANAGED_START_PREFIX, options.dryRun)
+  printRemoveResult("AGENTS.md", agentsResult)
+
+  for (const skillName of listDirNames(join(OPENCODE_DIR, "skills"))) {
+    const skillDir = join(OPENCODE_CONFIG_DIR, "skills", skillName)
+    const result = removeManagedDirectory(skillDir, join(skillDir, "SKILL.md"), OPENCODE_SKILL_MARKER, options.dryRun)
+    printRemoveResult(`skills/${skillName}`, result)
+  }
+
+  for (const commandFile of listFileNames(join(OPENCODE_DIR, "commands"), ".md")) {
+    const commandPath = join(OPENCODE_CONFIG_DIR, "commands", commandFile)
+    const result = removeManagedFile(commandPath, OPENCODE_COMMAND_MARKER, options.dryRun)
+    printRemoveResult(`commands/${commandFile.replace(/\.md$/, "")}`, result)
+  }
+
+  console.log(chalk.dim("  –  opencode.json preserved; review it manually if you want to remove merged permission defaults"))
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Uninstall complete.\n"))
+}
+
 // ─── Commands: status ────────────────────────────────────────────────────────
 
+async function printPackageStatus(target?: Target) {
+  const current = getPackageVersion()
+  const latest = await getLatestNpmVersion()
+
+  console.log(chalk.bold(`\n${CLI_NAME}: v${current}`))
+  if (!latest) {
+    console.log(chalk.dim("Latest npm version: unavailable"))
+    return
+  }
+
+  const updateTarget = target ? target : "<opencode|codex>"
+  const comparison = compareVersions(current, latest)
+  const newer = comparison === -1
+  const latestLabel = newer
+    ? chalk.yellow(`v${latest}`)
+    : comparison === 1
+      ? chalk.dim(`v${latest} (local newer)`)
+      : chalk.green(`v${latest}`)
+  console.log("Latest npm version: " + latestLabel)
+  if (newer) {
+    console.log(chalk.yellow("npm package update available:"))
+    console.log(`  npm update -g ${CLI_NAME}`)
+    console.log(`  ${CLI_NAME} update --target ${updateTarget}`)
+  }
+}
+
+function getManagedBlockStatusItem(label: string, path: string, startPrefix: string): StatusItem {
+  if (!existsSync(path)) return { label, ok: false }
+  const content = readFileSync(path, "utf-8")
+  const block = findManagedBlock(content, startPrefix)
+  if (!block) return { label, ok: false, note: "managed block missing" }
+  const version = getManagedBlockVersion(content, startPrefix)
+  return {
+    label,
+    ok: true,
+    version,
+    stale: isStaleVersion(version),
+    note: version ? undefined : "version unknown",
+  }
+}
+
+function getManagedFileStatusItem(label: string, path: string): StatusItem {
+  if (!existsSync(path)) return { label, ok: false }
+  const version = getManagedFileVersion(path)
+  return {
+    label,
+    ok: true,
+    version,
+    stale: isStaleVersion(version),
+    note: version ? undefined : "version unknown",
+  }
+}
+
+function getCodexPluginStatusItem(): StatusItem {
+  const manifestPath = join(CODEX_PLUGIN_DEST, ".codex-plugin", "plugin.json")
+  if (!existsSync(manifestPath)) return { label: "plugin/coding-agent-kit", ok: false }
+
+  try {
+    const manifest = readJsonFile(manifestPath)
+    const version = isRecord(manifest) && typeof manifest.version === "string" ? manifest.version : null
+    return {
+      label: "plugin/coding-agent-kit",
+      ok: true,
+      version,
+      stale: isStaleVersion(version),
+      note: version ? undefined : "version unknown",
+    }
+  } catch {
+    return { label: "plugin/coding-agent-kit", ok: true, stale: true, note: "manifest unreadable" }
+  }
+}
+
+function printStatusItems(items: StatusItem[]) {
+  for (const item of items) {
+    const icon = item.ok ? chalk.green("  ✓") : chalk.red("  ✗")
+    let line = `${icon}  ${item.label}`
+
+    if (item.ok && item.version) {
+      line += chalk.dim(` installed v${item.version}`)
+    } else if (item.ok && item.stale) {
+      line += chalk.dim(" version unknown")
+    }
+
+    if (item.stale) line += ` ${chalk.yellow("update available")}`
+    if (item.note) line += chalk.dim(` (${item.note})`)
+    console.log(line)
+  }
+}
+
+function printInstallStatusSummary(platformName: string, target: Target, items: StatusItem[]) {
+  const missing = items.filter(item => !item.ok)
+  const stale = items.filter(item => item.ok && item.stale)
+
+  if (missing.length > 0) {
+    console.log(chalk.yellow(`\n${missing.length} item(s) missing. Run: `) + chalk.bold(`${CLI_NAME} install --target ${target}`))
+  }
+
+  if (stale.length > 0) {
+    console.log(chalk.yellow(`${stale.length} item(s) stale. Run: `) + chalk.bold(`${CLI_NAME} update --target ${target}`))
+  }
+
+  if (missing.length === 0 && stale.length === 0) {
+    console.log(chalk.green(`\n${platformName} kit is fully installed and up to date.`))
+  }
+}
+
 async function cmdStatus(options: CommandOptions) {
+  await printPackageStatus(options.target)
+
   if (options.target === "opencode") return cmdStatusOpencode()
   if (options.target === "codex") return cmdStatusCodex()
 
@@ -945,43 +1517,22 @@ async function cmdStatusOpencode() {
     ? chalk.green(`✓ installed ${chalk.dim(version ?? "")}`)
     : chalk.red("✗ not installed")))
 
+  const skillNames = listDirNames(join(OPENCODE_DIR, "skills"))
+  const commandNames = listFileNames(join(OPENCODE_DIR, "commands"), ".md").map(name => name.replace(/\.md$/, ""))
   const checks = [
-    { label: "AGENTS.md", path: join(OPENCODE_CONFIG_DIR, "AGENTS.md") },
-    { label: "opencode.json", path: join(OPENCODE_CONFIG_DIR, "opencode.json") },
-    { label: "skills/coding-agent-scan-project", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-scan-project/SKILL.md") },
-    { label: "skills/coding-agent-write-docs", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-write-docs/SKILL.md") },
-    { label: "skills/coding-agent-setup-project", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-setup-project/SKILL.md") },
-    { label: "skills/coding-agent-skill-creator", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-skill-creator/SKILL.md") },
-    { label: "skills/coding-agent-brainstorm-feature", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-brainstorm-feature/SKILL.md") },
-    { label: "skills/coding-agent-write-plan", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-write-plan/SKILL.md") },
-    { label: "skills/coding-agent-implement-task", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-implement-task/SKILL.md") },
-    { label: "skills/coding-agent-review-feature", path: join(OPENCODE_CONFIG_DIR, "skills/coding-agent-review-feature/SKILL.md") },
-    { label: "commands/init-existing", path: join(OPENCODE_CONFIG_DIR, "commands/init-existing.md") },
-    { label: "commands/init-new", path: join(OPENCODE_CONFIG_DIR, "commands/init-new.md") },
-    { label: "commands/skill-new", path: join(OPENCODE_CONFIG_DIR, "commands/skill-new.md") },
-    { label: "commands/brainstorm", path: join(OPENCODE_CONFIG_DIR, "commands/brainstorm.md") },
-    { label: "commands/plan", path: join(OPENCODE_CONFIG_DIR, "commands/plan.md") },
-    { label: "commands/implement", path: join(OPENCODE_CONFIG_DIR, "commands/implement.md") },
-    { label: "commands/review", path: join(OPENCODE_CONFIG_DIR, "commands/review.md") },
+    getManagedBlockStatusItem("AGENTS.md managed block", join(OPENCODE_CONFIG_DIR, "AGENTS.md"), OPENCODE_MANAGED_START_PREFIX),
+    { label: "opencode.json", ok: existsSync(join(OPENCODE_CONFIG_DIR, "opencode.json")) },
+    ...skillNames.map(name => getManagedFileStatusItem(`skills/${name}`, join(OPENCODE_CONFIG_DIR, "skills", name, "SKILL.md"))),
+    ...commandNames.map(name => getManagedFileStatusItem(`commands/${name}`, join(OPENCODE_CONFIG_DIR, "commands", `${name}.md`))),
   ]
 
   console.log(`\nKit files at ${chalk.dim(OPENCODE_CONFIG_DIR)}:`)
-  for (const { label, path } of checks) {
-    console.log((existsSync(path) ? chalk.green("  ✓") : chalk.red("  ✗")) + "  " + label)
-  }
+  printStatusItems(checks)
 
-  const agentsPath = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
-  if (existsSync(agentsPath)) {
-    const content = readFileSync(agentsPath, "utf-8")
-    console.log(chalk.dim(`\nCommunication language: ${LANG_LABELS[detectLangFromContent(content)]}`))
-  }
+  const lang = getOpencodeManagedLang()
+  if (lang) console.log(chalk.dim(`\nCommunication language: ${LANG_LABELS[lang]}`))
 
-  const missing = checks.filter(c => !existsSync(c.path))
-  if (missing.length > 0) {
-    console.log(chalk.yellow(`\n${missing.length} file(s) missing. Run: `) + chalk.bold(`${CLI_NAME} install --target opencode`))
-  } else {
-    console.log(chalk.green("\nopencode kit is fully installed."))
-  }
+  printInstallStatusSummary("opencode", "opencode", checks)
   console.log("")
 }
 
@@ -993,31 +1544,22 @@ async function cmdStatusCodex() {
     ? chalk.green(`✓ detected ${chalk.dim(`(${codexDetected.join(", ")})`)}`)
     : chalk.yellow("not detected")))
 
-  const skillNames = existsSync(join(CODEX_DIR, "plugin", "skills"))
-    ? readdirSync(join(CODEX_DIR, "plugin", "skills")).filter(name => statSync(join(CODEX_DIR, "plugin", "skills", name)).isDirectory())
-    : []
+  const skillNames = listDirNames(join(CODEX_DIR, "plugin", "skills"))
 
   const checks = [
-    { label: "AGENTS.md managed block", ok: hasCodexManagedBlock() },
-    ...skillNames.map(name => ({ label: `skills/${name}`, ok: existsSync(join(CODEX_SKILLS_DIR, name, "SKILL.md")) })),
-    { label: "plugin/coding-agent-kit", ok: existsSync(join(CODEX_PLUGIN_DEST, ".codex-plugin", "plugin.json")) },
+    getManagedBlockStatusItem("AGENTS.md managed block", join(CODEX_HOME, "AGENTS.md"), CODEX_MANAGED_START_PREFIX),
+    ...skillNames.map(name => getManagedFileStatusItem(`skills/${name}`, join(CODEX_SKILLS_DIR, name, "SKILL.md"))),
+    getCodexPluginStatusItem(),
     { label: "marketplace entry", ok: hasCodexMarketplaceEntry() },
   ]
 
   console.log(`\nCodex files:`)
-  for (const { label, ok } of checks) {
-    console.log((ok ? chalk.green("  ✓") : chalk.red("  ✗")) + "  " + label)
-  }
+  printStatusItems(checks)
 
   const lang = getCodexManagedLang()
   if (lang) console.log(chalk.dim(`\nCommunication language: ${LANG_LABELS[lang]}`))
 
-  const missing = checks.filter(c => !c.ok)
-  if (missing.length > 0) {
-    console.log(chalk.yellow(`\n${missing.length} item(s) missing. Run: `) + chalk.bold(`${CLI_NAME} install --target codex`))
-  } else {
-    console.log(chalk.green("\nCodex kit is fully installed."))
-  }
+  printInstallStatusSummary("Codex", "codex", checks)
   console.log("")
 }
 
@@ -1049,14 +1591,12 @@ async function cmdLang(options: CommandOptions) {
 async function cmdLangOpencode(options: CommandOptions) {
   console.log(chalk.bold(`\n🌐 ${CLI_NAME} — set opencode language\n`))
 
-  const agentsPath = join(OPENCODE_CONFIG_DIR, "AGENTS.md")
-  if (!existsSync(agentsPath)) {
-    console.log(chalk.red(`AGENTS.md not found. Run ${CLI_NAME} install --target opencode first.`))
+  const lang = await resolveLang(options.lang)
+  const changed = setOpencodeLang(lang, options.dryRun)
+  if (!changed) {
+    console.log(chalk.red(`opencode managed block not found. Run ${CLI_NAME} install --target opencode first.`))
     process.exit(1)
   }
-
-  const lang = await resolveLang(options.lang)
-  if (!options.dryRun) applyLanguageOverlay(agentsPath, lang, join(OPENCODE_DIR, "AGENTS.md"))
 
   console.log(chalk.green("  ✓") + `  Communication section set to: ${LANG_LABELS[lang]}`)
   if (options.dryRun) console.log(chalk.yellow("  Dry run: no files were written."))
@@ -1085,9 +1625,11 @@ function cmdHelp() {
   console.log(`
 ${chalk.bold(CLI_NAME)} — setup kit for coding agents
 
-${chalk.bold("Commands:")}
+  ${chalk.bold("Commands:")}
   ${chalk.cyan("install")} --target <opencode|codex>  Install kit for one platform
   ${chalk.cyan("update")} --target <opencode|codex>   Update managed kit files
+  ${chalk.cyan("uninstall")} --target <opencode|codex>
+                                      Remove managed kit files
   ${chalk.cyan("status")} [--target <opencode|codex>] Check installation status
   ${chalk.cyan("lang")} <${langList}> --target <opencode|codex>
                                       Set the Communication language
@@ -1106,6 +1648,7 @@ ${chalk.bold("Examples:")}
   ${CLI_NAME} install --target codex --lang vi
   ${CLI_NAME} install --target opencode --lang ja
   ${CLI_NAME} update --target codex --dry-run
+  ${CLI_NAME} uninstall --target opencode --dry-run
   ${CLI_NAME} lang ko --target opencode
   ${CLI_NAME} status
 `)
@@ -1125,6 +1668,7 @@ async function main() {
   switch (cmd) {
     case "install": await cmdInstall(options); break
     case "update": await cmdUpdate(options); break
+    case "uninstall": await cmdUninstall(options); break
     case "status": await cmdStatus(options); break
     case "lang": await cmdLang(options); break
     case "version":

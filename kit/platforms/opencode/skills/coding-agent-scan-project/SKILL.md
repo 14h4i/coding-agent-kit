@@ -7,6 +7,8 @@ description: >
   patterns, and conventions, then generates the full opencode setup.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Process
 
 ### Step 1 — Discover structure (read-only)

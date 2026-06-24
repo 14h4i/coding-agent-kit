@@ -6,6 +6,8 @@ description: >
   "update the docs", "write documentation", "document this".
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Principles
 
 - Write for someone unfamiliar with the project

@@ -9,6 +9,8 @@ description: >
   single-file, unambiguous changes — see "When to skip" below.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## When to use
 
 Use this skill when a request describes a *goal* rather than a *specific,

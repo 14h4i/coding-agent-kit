@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.0.4] - 2026-06-24
+
+### Added
+
+- Added `uninstall --target <opencode|codex>` for removing kit-managed files
+  and blocks.
+- Added installed version and stale file reporting to `status`.
+- Added npm latest-version checks to `status` with a local cache.
+
+### Changed
+
+- Changed opencode `AGENTS.md` installs to use a managed block with append,
+  overwrite, and cancel choices.
+- Added managed markers to opencode skills and commands for safer status and
+  uninstall behavior.
+
 ## [1.0.3] - 2026-06-24
 
 ### Changed

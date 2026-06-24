@@ -6,7 +6,7 @@ description: >
   "update the docs", "write documentation", or "document this".
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.3 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
 
 ## Principles
 

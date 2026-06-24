@@ -7,6 +7,8 @@ description: >
   stops for review before continuing.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Prerequisites
 
 This skill expects a plan file in `docs/plans/*-plan.md` created by

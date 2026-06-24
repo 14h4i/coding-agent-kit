@@ -48,7 +48,7 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
 
 ### opencode
 
-- Global `AGENTS.md` in `~/.config/opencode/`
+- Managed global guidance block in `~/.config/opencode/AGENTS.md`
 - `opencode.json` with safe default permissions
 - 8 global skills using the same `coding-agent-*` prefix
 - 7 global commands:
@@ -97,6 +97,7 @@ coding-agent-kit install --target codex --dry-run
 ```bash
 coding-agent-kit install --target <opencode|codex>
 coding-agent-kit update --target <opencode|codex>
+coding-agent-kit uninstall --target <opencode|codex>
 coding-agent-kit status
 coding-agent-kit status --target <opencode|codex>
 coding-agent-kit lang <en|vi|ja|ko|zh|es|fr|de> --target <opencode|codex>
@@ -263,6 +264,17 @@ personal skills installed by `coding-agent-kit install --target codex`.
 
 ## Update
 
+`status` reports the current package version, the latest npm version when it
+can be checked, installed file versions, and stale managed files:
+
+```bash
+coding-agent-kit status
+coding-agent-kit status --target codex
+```
+
+If a newer npm package is available, update the package first, then refresh the
+installed platform files:
+
 ```bash
 npm update -g coding-agent-kit
 coding-agent-kit update --target codex
@@ -272,15 +284,40 @@ coding-agent-kit update --target opencode
 For Codex, `update` refreshes the managed AGENTS block, managed skills, local
 plugin files, and marketplace entry.
 
-If you installed the Codex plugin through the CLI, refresh its local cache
-after update:
+When the `codex` command is available, `update` asks whether to refresh the
+Codex plugin record. If that step is skipped, refresh it later with:
 
 ```bash
 codex plugin add coding-agent-kit@personal
 ```
 
-For opencode, `update` refreshes skills and commands, and merges new
-`opencode.json` keys without overwriting existing keys.
+For opencode, `update` refreshes the managed AGENTS block, skills, commands,
+and merges new `opencode.json` keys without overwriting existing keys.
+
+---
+
+## Uninstall
+
+```bash
+coding-agent-kit uninstall --target codex
+coding-agent-kit uninstall --target opencode
+```
+
+Preview removal without deleting files:
+
+```bash
+coding-agent-kit uninstall --target codex --dry-run
+```
+
+`uninstall` removes only files and blocks marked as managed by
+`coding-agent-kit`.
+
+- Codex: removes the managed AGENTS block, managed skills, local plugin files,
+  marketplace entry, and can remove the Codex plugin record when the `codex`
+  command is available.
+- opencode: removes the managed AGENTS block, managed skills, and managed
+  commands.
+- `opencode.json` is preserved by default because it may contain user changes.
 
 ---
 

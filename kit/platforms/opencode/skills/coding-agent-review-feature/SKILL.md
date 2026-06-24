@@ -8,6 +8,8 @@ description: >
   Does NOT refactor code, merge branches, or deploy.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Prerequisites
 
 Expects two files in `docs/plans/`:

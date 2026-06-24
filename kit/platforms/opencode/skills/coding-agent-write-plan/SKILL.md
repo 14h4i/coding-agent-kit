@@ -8,6 +8,8 @@ description: >
   without guessing.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Prerequisites
 
 This skill expects a design — either:

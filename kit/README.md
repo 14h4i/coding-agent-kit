@@ -72,13 +72,15 @@ as `create-component`, `add-api-route`, `write-migration`, or
 
 Installed into `~/.config/opencode/`:
 
-- `AGENTS.md`
+- `AGENTS.md` as a managed block.
 - `opencode.json`
 - `skills/coding-agent-*`
 - `commands/`
 
-`opencode.json` is merged without overwriting existing keys. Skills and
-commands are overwritten only during `update`.
+The installer preserves existing `AGENTS.md` content by default and can append
+or replace the managed block after confirmation. `opencode.json` is merged
+without overwriting existing keys. Skills and commands are overwritten only
+during `update`.
 
 ---
 

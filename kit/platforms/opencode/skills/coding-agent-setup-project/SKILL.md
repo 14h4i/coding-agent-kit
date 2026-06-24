@@ -7,6 +7,8 @@ description: >
   confirmation.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Process
 
 ### Step 1 — Gather information (no files yet)

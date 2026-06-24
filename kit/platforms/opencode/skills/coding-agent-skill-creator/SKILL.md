@@ -8,6 +8,8 @@ description: >
   to Step 3.
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 ## Two modes
 
 **Interactive** (user initiated) — ask questions in Step 1, then create.

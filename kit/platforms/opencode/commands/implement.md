@@ -3,6 +3,8 @@ description: Implement the next task from an approved plan in docs/plans/
 agent: build
 ---
 
+<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+
 Use the `coding-agent-implement-task` skill to execute the next task from the plan.
 
 Requirements:
