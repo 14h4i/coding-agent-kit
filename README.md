@@ -244,6 +244,8 @@ The Codex installer is designed for machines that already have Codex configured.
   or you pass `--force`.
 - Existing marketplace metadata is preserved; the plugin entry is appended or
   updated by name.
+- If the `codex` command is available, the CLI asks whether to install or
+  refresh the Codex plugin record automatically.
 - Codex may need a restart or new session to load new global guidance, skills,
   or plugin metadata.
 

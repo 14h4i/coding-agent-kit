@@ -70,10 +70,24 @@ const CODEX_SKILL_MARKER = "CODING_AGENT_KIT_MANAGED"
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+let readline: ReturnType<typeof createInterface> | null = null
+
+function getReadline(): ReturnType<typeof createInterface> {
+  if (!readline) {
+    readline = createInterface({ input: process.stdin, output: process.stdout })
+  }
+  return readline
+}
+
+function closeReadline() {
+  if (!readline) return
+  readline.close()
+  readline = null
+}
+
 function ask(question: string): Promise<string> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
   return new Promise((resolve) => {
-    rl.question(question, (answer) => { rl.close(); resolve(answer.trim()) })
+    getReadline().question(question, (answer) => resolve(answer.trim()))
   })
 }
 
@@ -650,6 +664,41 @@ function upsertCodexMarketplace(dryRun = false): "created" | "updated" | "unchan
   return "updated"
 }
 
+async function maybeAddCodexPluginRecord(dryRun = false) {
+  if (dryRun) return
+
+  if (!checkTool("codex").installed) {
+    console.log(chalk.dim("  –  plugin record not installed; direct skills are ready, or install the plugin from Codex Plugins"))
+    return
+  }
+
+  if (!process.stdin.isTTY) {
+    console.log(chalk.dim(`  –  plugin record not installed in non-interactive mode; run ${chalk.bold("codex plugin add coding-agent-kit@personal")} later if needed`))
+    return
+  }
+
+  if (!await confirm("Install or refresh the Codex plugin record now?", true)) {
+    console.log(chalk.dim(`  –  plugin record skipped; run ${chalk.bold("codex plugin add coding-agent-kit@personal")} later if needed`))
+    return
+  }
+
+  const result = spawnSync("codex", ["plugin", "add", `${PLUGIN_NAME}@personal`], {
+    encoding: "utf-8",
+  })
+
+  if (result.status === 0) {
+    console.log(chalk.green("  ✓") + "  plugin record installed/refreshed")
+    const output = `${result.stdout}${result.stderr}`.trim()
+    if (output) console.log(chalk.dim(output.split("\n").map(line => `     ${line}`).join("\n")))
+    return
+  }
+
+  console.log(chalk.yellow("  !") + "  plugin record install failed")
+  const output = `${result.stderr}${result.stdout}`.trim()
+  if (output) console.log(chalk.dim(output.split("\n").map(line => `     ${line}`).join("\n")))
+  console.log(chalk.dim(`     You can retry with: codex plugin add ${PLUGIN_NAME}@personal`))
+}
+
 // ─── Commands: install ───────────────────────────────────────────────────────
 
 async function cmdInstall(options: CommandOptions) {
@@ -781,12 +830,13 @@ async function cmdInstallCodex(options: CommandOptions) {
 
   const marketplaceAction = upsertCodexMarketplace(options.dryRun)
   console.log(chalk.green("  ✓") + `  marketplace (${marketplaceAction})`)
+  await maybeAddCodexPluginRecord(options.dryRun)
 
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Install complete!\n"))
   console.log("Next steps:")
   console.log(`  ${chalk.cyan("1.")} Restart Codex or start a new Codex session`)
   console.log(`  ${chalk.cyan("2.")} Use ${chalk.bold("$coding-agent-scan-project")} to initialize an existing project`)
-  console.log(`  ${chalk.cyan("3.")} Enable the plugin from Codex Plugins when needed, or run ${chalk.bold("codex plugin add coding-agent-kit@personal")} when using the command\n`)
+  console.log(`  ${chalk.cyan("3.")} If the plugin record was skipped, enable it from Codex Plugins when needed\n`)
 }
 
 // ─── Commands: update ────────────────────────────────────────────────────────
@@ -872,9 +922,9 @@ async function cmdUpdateCodex(options: CommandOptions) {
 
   const marketplaceAction = upsertCodexMarketplace(options.dryRun)
   console.log(chalk.green("  ✓") + `  marketplace (${marketplaceAction})`)
+  await maybeAddCodexPluginRecord(options.dryRun)
 
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
-  console.log(`If you installed the plugin with the codex command, refresh its cache with: ${chalk.bold("codex plugin add coding-agent-kit@personal")}\n`)
 }
 
 // ─── Commands: status ────────────────────────────────────────────────────────
@@ -1071,14 +1121,22 @@ function cmdVersion() {
 const cmd = process.argv[2]
 const options = getOptions(cmd)
 
-switch (cmd) {
-  case "install": await cmdInstall(options); break
-  case "update": await cmdUpdate(options); break
-  case "status": await cmdStatus(options); break
-  case "lang": await cmdLang(options); break
-  case "version":
-  case "--version":
-  case "-v":
-    cmdVersion(); break
-  default: cmdHelp(); break
+async function main() {
+  switch (cmd) {
+    case "install": await cmdInstall(options); break
+    case "update": await cmdUpdate(options); break
+    case "status": await cmdStatus(options); break
+    case "lang": await cmdLang(options); break
+    case "version":
+    case "--version":
+    case "-v":
+      cmdVersion(); break
+    default: cmdHelp(); break
+  }
+}
+
+try {
+  await main()
+} finally {
+  closeReadline()
 }

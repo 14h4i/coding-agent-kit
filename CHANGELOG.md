@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.3] - 2026-06-24
+
+### Changed
+
+- Added an optional Codex plugin record install/refresh prompt when the
+  `codex` command is available.
+- Pinned `esbuild` to a patched version through npm overrides.
+
 ## [1.0.2] - 2026-06-24
 
 ### Changed
