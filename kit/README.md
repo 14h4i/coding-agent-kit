@@ -2,8 +2,8 @@
 
 This directory contains the files installed by `coding-agent-kit`.
 
-The source is organized around platform targets so future support for agents
-such as Claude Code or Google Antigravity can be added without mixing their
+The source is organized around platform targets so Codex, opencode, Claude
+Code, Google Antigravity, and future agents can evolve without mixing their
 installation files into existing targets.
 
 ---
@@ -22,6 +22,17 @@ kit/
 │       ├── AGENTS.md
 │       └── plugin/
 │           ├── .codex-plugin/
+│           │   └── plugin.json
+│           └── skills/
+│   ├── antigravity/
+│   │   └── plugin/
+│   │       ├── plugin.json
+│   │       ├── rules/
+│   │       └── skills/
+│   └── claude/
+│       ├── CLAUDE.md
+│       └── plugin/
+│           ├── .claude-plugin/
 │           │   └── plugin.json
 │           └── skills/
 └── shared/
@@ -49,7 +60,8 @@ system.
 
 ## Skill Naming
 
-Skills shipped with this kit use the `coding-agent-` prefix across platforms.
+Codex and opencode skills use the `coding-agent-` prefix for backward
+compatibility and to avoid collisions in global skill directories.
 
 Examples:
 
@@ -58,8 +70,9 @@ Examples:
 - `coding-agent-implement-task`
 - `coding-agent-review-feature`
 
-The prefix makes kit-managed skills recognizable and avoids collisions with
-personal, project, or platform-native skills.
+Claude and Antigravity plugin skills use shorter names such as `scan-project`
+and `write-plan` because the plugin namespace already identifies
+`coding-agent-kit`.
 
 Skills generated later for a specific project should not automatically use the
 kit prefix. They should follow the project's domain and workflow language, such
@@ -97,9 +110,45 @@ The installer does not edit `~/.codex/config.toml`.
 
 ---
 
+## Antigravity Target
+
+Installed into one or both documented plugin locations:
+
+- `~/.gemini/config/plugins/coding-agent-kit/` for Antigravity app/editor.
+- `~/.gemini/antigravity-cli/plugins/coding-agent-kit/` for Antigravity CLI.
+
+The plugin contains:
+
+- `plugin.json`
+- `rules/coding-agent-kit.md`
+- `skills/<workflow>/SKILL.md`
+
+The installer does not edit Antigravity settings, hooks, sidecars, MCP,
+permissions, sandbox, auth, telemetry, model, or provider configuration.
+
+---
+
+## Claude Target
+
+Installed into:
+
+- `~/.claude/CLAUDE.md` as a managed block.
+- `~/.claude/skills/coding-agent-kit/` as a Claude Code skills-directory
+  plugin.
+
+The plugin contains:
+
+- `.claude-plugin/plugin.json`
+- `skills/<workflow>/SKILL.md`
+
+The installer does not edit Claude settings, hooks, monitors, MCP,
+permissions, sandbox, auth, telemetry, model, or provider configuration.
+
+---
+
 ## Language Overlays
 
-Both current targets use the same Communication markers:
+All guidance or rule files use the same Communication markers:
 
 ```md
 <!-- COMMUNICATION_START -->

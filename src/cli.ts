@@ -16,6 +16,8 @@ const PLATFORMS_DIR = join(KIT_DIR, "platforms")
 const SHARED_DIR = join(KIT_DIR, "shared")
 const OPENCODE_DIR = join(PLATFORMS_DIR, "opencode")
 const CODEX_DIR = join(PLATFORMS_DIR, "codex")
+const ANTIGRAVITY_DIR = join(PLATFORMS_DIR, "antigravity")
+const CLAUDE_DIR = join(PLATFORMS_DIR, "claude")
 const OVERLAYS_DIR = join(SHARED_DIR, "overlays")
 
 const CLI_NAME = "coding-agent-kit"
@@ -27,11 +29,19 @@ const CODEX_AGENTS_DIR = join(homedir(), ".agents")
 const CODEX_SKILLS_DIR = join(CODEX_AGENTS_DIR, "skills")
 const CODEX_PLUGIN_DEST = join(homedir(), "plugins", PLUGIN_NAME)
 const CODEX_MARKETPLACE_PATH = join(CODEX_AGENTS_DIR, "plugins", "marketplace.json")
+const ANTIGRAVITY_CONFIG_DIR = join(homedir(), ".gemini", "config")
+const ANTIGRAVITY_APP_DATA_DIR = join(homedir(), ".gemini", "antigravity")
+const ANTIGRAVITY_CLI_DIR = join(homedir(), ".gemini", "antigravity-cli")
+const ANTIGRAVITY_APP_PLUGIN_DEST = join(ANTIGRAVITY_CONFIG_DIR, "plugins", PLUGIN_NAME)
+const ANTIGRAVITY_CLI_PLUGIN_DEST = join(ANTIGRAVITY_CLI_DIR, "plugins", PLUGIN_NAME)
+const CLAUDE_CONFIG_DIR = process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude")
+const CLAUDE_GLOBAL_INSTRUCTIONS_PATH = join(CLAUDE_CONFIG_DIR, "CLAUDE.md")
+const CLAUDE_PLUGIN_DEST = join(CLAUDE_CONFIG_DIR, "skills", PLUGIN_NAME)
 
 const SUPPORTED_LANGS = ["en", "vi", "ja", "ko", "zh", "es", "fr", "de"] as const
 type Lang = typeof SUPPORTED_LANGS[number]
 
-const TARGETS = ["opencode", "codex"] as const
+const TARGETS = ["opencode", "codex", "antigravity", "claude"] as const
 type Target = typeof TARGETS[number]
 
 type CommandOptions = {
@@ -75,6 +85,7 @@ const COMMUNICATION_END = "<!-- COMMUNICATION_END -->"
 const MANAGED_END = "<!-- CODING_AGENT_KIT_END -->"
 const CODEX_MANAGED_START_PREFIX = "<!-- CODING_AGENT_KIT_START target=codex"
 const OPENCODE_MANAGED_START_PREFIX = "<!-- CODING_AGENT_KIT_START target=opencode"
+const CLAUDE_MANAGED_START_PREFIX = "<!-- CODING_AGENT_KIT_START target=claude"
 const CODEX_MANAGED_END = MANAGED_END
 const CODEX_SKILL_MARKER = "CODING_AGENT_KIT_MANAGED"
 const OPENCODE_SKILL_MARKER = "CODING_AGENT_KIT_MANAGED"
@@ -288,6 +299,39 @@ function copyDir(src: string, dest: string, overwrite = false, dryRun = false): 
   return copied
 }
 
+function copyDirTransformed(
+  src: string,
+  dest: string,
+  overwrite = false,
+  dryRun = false,
+  transform: (relativePath: string, content: string) => string = (_relativePath, content) => content,
+  base = src
+): string[] {
+  const copied: string[] = []
+  if (!dryRun && !existsSync(dest)) mkdirSync(dest, { recursive: true })
+
+  for (const entry of readdirSync(src)) {
+    const srcPath = join(src, entry)
+    const destPath = join(dest, entry)
+    if (statSync(srcPath).isDirectory()) {
+      copied.push(...copyDirTransformed(srcPath, destPath, overwrite, dryRun, transform, base))
+      continue
+    }
+
+    if (existsSync(destPath) && !overwrite) continue
+
+    const relativePath = srcPath.slice(base.length + 1).replace(/\\/g, "/")
+    const content = transform(relativePath, readFileSync(srcPath, "utf-8"))
+    if (!dryRun) {
+      mkdirSync(dirname(destPath), { recursive: true })
+      writeFileSync(destPath, content)
+    }
+    copied.push(destPath)
+  }
+
+  return copied
+}
+
 function listDirNames(path: string): string[] {
   if (!existsSync(path)) return []
   return readdirSync(path)
@@ -384,10 +428,14 @@ async function resolveTarget(argTarget?: Target): Promise<Target> {
   console.log("\nSelect target platform:")
   console.log("  1. opencode")
   console.log("  2. Codex")
+  console.log("  3. Antigravity")
+  console.log("  4. Claude")
 
   const answer = await ask("> ")
   if (answer === "1" || answer.toLowerCase() === "opencode") return "opencode"
   if (answer === "2" || answer.toLowerCase() === "codex") return "codex"
+  if (answer === "3" || answer.toLowerCase() === "antigravity") return "antigravity"
+  if (answer === "4" || answer.toLowerCase() === "claude") return "claude"
   return "codex"
 }
 
@@ -581,6 +629,111 @@ function detectCodex(): string[] {
   return [...new Set(detected)]
 }
 
+function findClaudeIdeExtensions(): string[] {
+  const roots = [
+    { label: "VS Code extension", path: join(homedir(), ".vscode", "extensions") },
+    { label: "VS Code Insiders extension", path: join(homedir(), ".vscode-insiders", "extensions") },
+    { label: "Cursor extension", path: join(homedir(), ".cursor", "extensions") },
+    { label: "Windsurf extension", path: join(homedir(), ".windsurf", "extensions") },
+  ]
+
+  const found: string[] = []
+
+  for (const root of roots) {
+    if (!existsSync(root.path)) continue
+
+    let entries: string[]
+    try {
+      entries = readdirSync(root.path)
+    } catch {
+      continue
+    }
+
+    for (const entry of entries) {
+      const entryPath = join(root.path, entry)
+      try {
+        if (!statSync(entryPath).isDirectory()) continue
+      } catch {
+        continue
+      }
+
+      const entryName = entry.toLowerCase()
+      if (entryName.includes("anthropic") && entryName.includes("claude")) {
+        found.push(root.label)
+        break
+      }
+
+      const packagePath = join(entryPath, "package.json")
+      if (!existsSync(packagePath)) continue
+
+      try {
+        const pkg = readJsonFile(packagePath)
+        if (!isRecord(pkg)) continue
+
+        const publisher = typeof pkg.publisher === "string" ? pkg.publisher.toLowerCase() : ""
+        const name = typeof pkg.name === "string" ? pkg.name.toLowerCase() : ""
+        const displayName = typeof pkg.displayName === "string" ? pkg.displayName.toLowerCase() : ""
+        const description = typeof pkg.description === "string" ? pkg.description.toLowerCase() : ""
+        const metadata = `${publisher} ${name} ${displayName} ${description}`
+
+        if (
+          (publisher.includes("anthropic") || metadata.includes("anthropic")) &&
+          metadata.includes("claude")
+        ) {
+          found.push(root.label)
+          break
+        }
+      } catch {
+        // Ignore malformed extension manifests during best-effort detection.
+      }
+    }
+  }
+
+  return found
+}
+
+function detectClaude(): string[] {
+  const detected: string[] = []
+  if (checkTool("claude").installed) detected.push("command")
+
+  if (platform() === "darwin") {
+    const appPaths = [
+      "/Applications/Claude.app",
+      "/Applications/Claude Code.app",
+      join(homedir(), "Applications", "Claude.app"),
+      join(homedir(), "Applications", "Claude Code.app"),
+    ]
+    if (appPaths.some(path => existsSync(path))) detected.push("app")
+  }
+
+  detected.push(...findClaudeIdeExtensions())
+
+  if (existsSync(CLAUDE_CONFIG_DIR)) detected.push("config")
+
+  return [...new Set(detected)]
+}
+
+function detectAntigravity(): string[] {
+  const detected: string[] = []
+  if (checkTool("agy").installed) detected.push("agy command")
+
+  if (platform() === "darwin") {
+    const appPaths = [
+      "/Applications/Antigravity.app",
+      "/Applications/Google Antigravity.app",
+      join(homedir(), "Applications", "Antigravity.app"),
+      join(homedir(), "Applications", "Google Antigravity.app"),
+    ]
+    if (appPaths.some(path => existsSync(path))) detected.push("app")
+  }
+
+  if (existsSync(ANTIGRAVITY_CONFIG_DIR)) detected.push("global config")
+  if (existsSync(ANTIGRAVITY_APP_DATA_DIR)) detected.push("app data")
+  if (existsSync(ANTIGRAVITY_CLI_DIR)) detected.push("CLI config")
+
+  return [...new Set(detected)]
+}
+
 // ─── Codex managed files ─────────────────────────────────────────────────────
 
 function findCodexManagedBlock(content: string): { start: number; end: number } | null {
@@ -744,6 +897,156 @@ function setCodexLang(lang: Lang, dryRun = false): boolean {
   const updatedBlock = applyLanguageOverlayToContent(withoutOldStart, lang, join(CODEX_DIR, "AGENTS.md"))
   const updated = content.slice(0, block.start) + updatedBlock + content.slice(block.end)
   writeTextFile(agentsPath, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
+  return true
+}
+
+// ─── Claude managed files ────────────────────────────────────────────────────
+
+function findClaudeManagedBlock(content: string): { start: number; end: number } | null {
+  return findManagedBlock(content, CLAUDE_MANAGED_START_PREFIX)
+}
+
+function claudeManagedStart(lang: Lang): string {
+  return `<!-- CODING_AGENT_KIT_START target=claude version=${getPackageVersion()} lang=${lang} -->`
+}
+
+function buildClaudeManagedBlock(lang: Lang): string {
+  const base = readFileSync(join(CLAUDE_DIR, "CLAUDE.md"), "utf-8")
+  const body = applyLanguageOverlayToContent(base, lang, join(CLAUDE_DIR, "CLAUDE.md")).trim()
+  return `${claudeManagedStart(lang)}\n${body}\n${MANAGED_END}`
+}
+
+function getClaudeAgentsPlan(lang: Lang): AgentsPlan {
+  const block = buildClaudeManagedBlock(lang)
+
+  if (!existsSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH)) {
+    return {
+      path: CLAUDE_GLOBAL_INSTRUCTIONS_PATH,
+      action: "created",
+      block,
+      content: "",
+      existingBlock: null,
+    }
+  }
+
+  const content = readFileSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH, "utf-8")
+  const existing = findClaudeManagedBlock(content)
+  return {
+    path: CLAUDE_GLOBAL_INSTRUCTIONS_PATH,
+    action: existing ? "updated" : "appended",
+    block,
+    content,
+    existingBlock: existing,
+  }
+}
+
+function applyClaudeAgentsPlan(plan: AgentsPlan, dryRun = false): AgentsAction {
+  if (plan.action === "created" || plan.action === "overwritten") {
+    writeTextFile(plan.path, `${plan.block}\n`, dryRun)
+    return plan.action
+  }
+
+  if (plan.action === "updated" && plan.existingBlock) {
+    const updated = plan.content.slice(0, plan.existingBlock.start) +
+      plan.block +
+      plan.content.slice(plan.existingBlock.end)
+    writeTextFile(plan.path, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
+    return plan.action
+  }
+
+  const separator = plan.content.endsWith("\n") ? "\n" : "\n\n"
+  writeTextFile(plan.path, `${plan.content}${separator}${plan.block}\n`, dryRun)
+  return plan.action
+}
+
+function describeClaudeAgentsPlan(plan: AgentsPlan) {
+  console.log(chalk.bold("\nClaude CLAUDE.md:"))
+  console.log(`  Path: ${chalk.cyan(plan.path)}`)
+
+  if (plan.action === "created") {
+    console.log("  Action: create managed file")
+    console.log(`  New block: ${countLines(plan.block)} lines`)
+    return
+  }
+
+  if (plan.action === "overwritten") {
+    console.log(chalk.yellow("  Action: overwrite existing file"))
+    console.log(`  Existing content: replaced (${countLines(plan.content)} lines)`)
+    console.log(`  New file: managed block only (${countLines(plan.block)} lines)`)
+    return
+  }
+
+  if (plan.action === "updated" && plan.existingBlock) {
+    const oldBlock = plan.content.slice(plan.existingBlock.start, plan.existingBlock.end)
+    console.log("  Action: replace existing coding-agent-kit block")
+    console.log(`  Old: ${chalk.dim(firstLine(oldBlock))}`)
+    console.log(`  New: ${chalk.dim(firstLine(plan.block))}`)
+    console.log("  Existing content outside the block will be preserved.")
+    return
+  }
+
+  const existingLines = countLines(plan.content)
+  console.log(existingLines > 0
+    ? "  Action: append managed block to existing file"
+    : "  Action: add managed block to empty file")
+  console.log(`  Existing content: preserved (${existingLines} lines)`)
+  console.log(`  New block: appended at the end (${countLines(plan.block)} lines)`)
+}
+
+function getClaudeAgentsConfirmQuestion(plan: AgentsPlan): string {
+  if (plan.action === "overwritten") return "Overwrite existing CLAUDE.md and continue?"
+  if (plan.action === "updated") return "Replace the existing coding-agent-kit block and continue?"
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    return "Append the coding-agent-kit block to existing CLAUDE.md and continue?"
+  }
+  return "Continue?"
+}
+
+async function resolveClaudeAgentsPlanForWrite(plan: AgentsPlan): Promise<AgentsPlan | null> {
+  if (plan.action === "appended" && plan.content.trim() !== "") {
+    console.log("\nExisting CLAUDE.md has content. Choose an action:")
+    console.log(`  ${chalk.cyan("1.")} Append managed block ${chalk.dim("(recommended; preserves existing content)")}`)
+    console.log(`  ${chalk.cyan("2.")} Overwrite CLAUDE.md ${chalk.dim("(replaces existing content)")}`)
+    console.log(`  ${chalk.cyan("3.")} Cancel`)
+
+    const answer = (await ask("> ")).toLowerCase()
+    if (answer === "" || answer === "1" || answer === "a" || answer === "append") return plan
+    if (answer === "2" || answer === "o" || answer === "overwrite") {
+      const overwritePlan = { ...plan, action: "overwritten" as const }
+      describeClaudeAgentsPlan(overwritePlan)
+      return overwritePlan
+    }
+    return null
+  }
+
+  return await confirm(getClaudeAgentsConfirmQuestion(plan), true) ? plan : null
+}
+
+function getClaudeManagedLang(): Lang | null {
+  if (!existsSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH)) return null
+  const content = readFileSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH, "utf-8")
+  const block = findClaudeManagedBlock(content)
+  if (!block) return null
+  const startLineEnd = content.indexOf("\n", block.start)
+  const startLine = content.slice(block.start, startLineEnd === -1 ? block.end : startLineEnd)
+  const match = startLine.match(/lang=([a-z]{2})/)
+  if (match && (SUPPORTED_LANGS as readonly string[]).includes(match[1])) {
+    return match[1] as Lang
+  }
+  return detectLangFromContent(content.slice(block.start, block.end))
+}
+
+function setClaudeLang(lang: Lang, dryRun = false): boolean {
+  if (!existsSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH)) return false
+  const content = readFileSync(CLAUDE_GLOBAL_INSTRUCTIONS_PATH, "utf-8")
+  const block = findClaudeManagedBlock(content)
+  if (!block) return false
+
+  const blockContent = content.slice(block.start, block.end)
+  const withoutOldStart = blockContent.replace(/^<!-- CODING_AGENT_KIT_START target=claude[^\n]* -->/, claudeManagedStart(lang))
+  const updatedBlock = applyLanguageOverlayToContent(withoutOldStart, lang, join(CLAUDE_DIR, "CLAUDE.md"))
+  const updated = content.slice(0, block.start) + updatedBlock + content.slice(block.end)
+  writeTextFile(CLAUDE_GLOBAL_INSTRUCTIONS_PATH, updated.endsWith("\n") ? updated : `${updated}\n`, dryRun)
   return true
 }
 
@@ -930,6 +1233,140 @@ function copyCodexPlugin(dryRun = false): number {
   return copyDir(pluginSrc, CODEX_PLUGIN_DEST, true, dryRun).length
 }
 
+function isManagedPluginDirectory(dirPath: string, manifestRelativePath: string): boolean {
+  const manifestPath = join(dirPath, manifestRelativePath)
+  if (!existsSync(manifestPath)) return false
+  try {
+    const manifest = readJsonFile(manifestPath)
+    return isRecord(manifest) && manifest.name === PLUGIN_NAME
+  } catch {
+    return false
+  }
+}
+
+function copyManagedPlugin(
+  srcPath: string,
+  destPath: string,
+  manifestRelativePath: string,
+  force: boolean,
+  dryRun = false,
+  transform: (relativePath: string, content: string) => string = (_relativePath, content) => content
+): { copied: number; skipped: boolean } {
+  if (existsSync(destPath) && !isManagedPluginDirectory(destPath, manifestRelativePath) && !force) {
+    return { copied: 0, skipped: true }
+  }
+
+  const copied = copyDirTransformed(srcPath, destPath, true, dryRun, transform).length
+  return { copied, skipped: false }
+}
+
+function copyClaudePlugin(force: boolean, dryRun = false): { copied: number; skipped: boolean } {
+  return copyManagedPlugin(
+    join(CLAUDE_DIR, "plugin"),
+    CLAUDE_PLUGIN_DEST,
+    join(".claude-plugin", "plugin.json"),
+    force,
+    dryRun
+  )
+}
+
+function antigravityPluginTransform(lang: Lang): (relativePath: string, content: string) => string {
+  return (relativePath, content) => {
+    if (relativePath !== "rules/coding-agent-kit.md") return content
+    const withLang = content.replace(
+      /<!-- CODING_AGENT_KIT_MANAGED version=[^ ]+(?: lang=[a-z]{2})? -->/,
+      `<!-- CODING_AGENT_KIT_MANAGED version=${getPackageVersion()} lang=${lang} -->`
+    )
+    return applyLanguageOverlayToContent(withLang, lang, join(ANTIGRAVITY_DIR, "plugin", "rules", "coding-agent-kit.md"))
+  }
+}
+
+function copyAntigravityPlugin(
+  destPath: string,
+  lang: Lang,
+  force: boolean,
+  dryRun = false
+): { copied: number; skipped: boolean } {
+  return copyManagedPlugin(
+    join(ANTIGRAVITY_DIR, "plugin"),
+    destPath,
+    "plugin.json",
+    force,
+    dryRun,
+    antigravityPluginTransform(lang)
+  )
+}
+
+type AntigravitySurface = "app" | "cli"
+
+function antigravitySurfacePath(surface: AntigravitySurface): string {
+  return surface === "app" ? ANTIGRAVITY_APP_PLUGIN_DEST : ANTIGRAVITY_CLI_PLUGIN_DEST
+}
+
+function antigravitySurfaceLabel(surface: AntigravitySurface): string {
+  return surface === "app" ? "app/editor plugin" : "CLI plugin"
+}
+
+function getInstalledAntigravitySurfaces(): AntigravitySurface[] {
+  const surfaces: AntigravitySurface[] = []
+  if (isManagedPluginDirectory(ANTIGRAVITY_APP_PLUGIN_DEST, "plugin.json")) surfaces.push("app")
+  if (isManagedPluginDirectory(ANTIGRAVITY_CLI_PLUGIN_DEST, "plugin.json")) surfaces.push("cli")
+  return surfaces
+}
+
+function getAntigravityRulePath(surface: AntigravitySurface): string {
+  return join(antigravitySurfacePath(surface), "rules", "coding-agent-kit.md")
+}
+
+function getAntigravityManagedLang(): Lang | null {
+  for (const surface of getInstalledAntigravitySurfaces()) {
+    const rulePath = getAntigravityRulePath(surface)
+    if (!existsSync(rulePath)) continue
+    const content = readFileSync(rulePath, "utf-8")
+    const match = content.match(/lang=([a-z]{2})/)
+    if (match && (SUPPORTED_LANGS as readonly string[]).includes(match[1])) {
+      return match[1] as Lang
+    }
+    return detectLangFromContent(content)
+  }
+  return null
+}
+
+function getDefaultAntigravitySurfaces(mode: "install" | "update" | "uninstall" | "lang"): AntigravitySurface[] {
+  const installed = getInstalledAntigravitySurfaces()
+  if ((mode === "update" || mode === "uninstall" || mode === "lang") && installed.length > 0) {
+    return installed
+  }
+
+  const detected = detectAntigravity()
+  const hasCliSignal = detected.some(signal => signal === "agy command" || signal === "CLI config")
+  const hasAppSignal = detected.some(signal => signal === "app" || signal === "global config" || signal === "app data")
+  const surfaces: AntigravitySurface[] = []
+
+  if (hasAppSignal || !hasCliSignal) surfaces.push("app")
+  if (hasCliSignal) surfaces.push("cli")
+  return surfaces.length > 0 ? surfaces : ["app"]
+}
+
+async function resolveAntigravitySurfaces(
+  mode: "install" | "update" | "uninstall" | "lang",
+  dryRun = false
+): Promise<AntigravitySurface[]> {
+  const defaults = getDefaultAntigravitySurfaces(mode)
+  if (dryRun || !process.stdin.isTTY) return defaults
+
+  console.log("\nSelect Antigravity surfaces:")
+  const verb = mode === "uninstall" ? "Remove from" : mode === "lang" ? "Update language for" : "Install for"
+  const appDefault = defaults.includes("app")
+  const cliDefault = defaults.includes("cli")
+  const app = await confirm(`${verb} Antigravity app/editor?`, appDefault)
+  const cli = await confirm(`${verb} Antigravity CLI?`, cliDefault)
+  const selected: AntigravitySurface[] = []
+  if (app) selected.push("app")
+  if (cli) selected.push("cli")
+  return selected
+}
+
 function getMarketplaceEntry(): Record<string, unknown> {
   return {
     name: PLUGIN_NAME,
@@ -1020,7 +1457,9 @@ async function maybeAddCodexPluginRecord(dryRun = false) {
 async function cmdInstall(options: CommandOptions) {
   const target = await resolveTarget(options.target)
   if (target === "opencode") return cmdInstallOpencode(options)
-  return cmdInstallCodex(options)
+  if (target === "codex") return cmdInstallCodex(options)
+  if (target === "antigravity") return cmdInstallAntigravity(options)
+  return cmdInstallClaude(options)
 }
 
 async function cmdInstallOpencode(options: CommandOptions) {
@@ -1149,12 +1588,102 @@ async function cmdInstallCodex(options: CommandOptions) {
   console.log(`  ${chalk.cyan("3.")} If the plugin record was skipped, enable it from Codex Plugins when needed\n`)
 }
 
+async function cmdInstallAntigravity(options: CommandOptions) {
+  console.log(chalk.bold(`\n🚀 ${CLI_NAME} — Antigravity installer\n`))
+
+  const detected = detectAntigravity()
+  if (detected.length > 0) {
+    console.log(chalk.dim(`Antigravity detected: ${detected.join(", ")}`))
+  } else {
+    console.log(chalk.dim("Antigravity not detected."))
+  }
+
+  const lang = await resolveLang(options.lang)
+  const surfaces = await resolveAntigravitySurfaces("install", options.dryRun)
+  if (surfaces.length === 0) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  console.log(chalk.dim(`\nLanguage: ${LANG_LABELS[lang]}`))
+  console.log("\nWill install Antigravity plugin into:")
+  for (const surface of surfaces) {
+    console.log(`  ${chalk.cyan(antigravitySurfacePath(surface))} (${antigravitySurfaceLabel(surface)})`)
+  }
+  console.log("")
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be written.\n"))
+  }
+
+  for (const surface of surfaces) {
+    const result = copyAntigravityPlugin(antigravitySurfacePath(surface), lang, options.force, options.dryRun)
+    if (result.skipped) {
+      console.log(chalk.yellow("  !") + `  ${antigravitySurfaceLabel(surface)} skipped (existing directory is not a coding-agent-kit plugin; use --force to overwrite)`)
+    } else {
+      console.log(chalk.green("  ✓") + `  ${antigravitySurfaceLabel(surface)} — ${result.copied} files copied`)
+    }
+  }
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Install complete!\n"))
+  console.log("Next steps:")
+  console.log(`  ${chalk.cyan("1.")} Restart Antigravity or start a new session`)
+  console.log(`  ${chalk.cyan("2.")} Use the ${chalk.bold("scan-project")} skill to initialize an existing project\n`)
+}
+
+async function cmdInstallClaude(options: CommandOptions) {
+  console.log(chalk.bold(`\n🚀 ${CLI_NAME} — Claude installer\n`))
+
+  const detected = detectClaude()
+  if (detected.length > 0) {
+    console.log(chalk.dim(`Claude detected: ${detected.join(", ")}`))
+  } else {
+    console.log(chalk.dim("Claude not detected."))
+  }
+
+  const lang = await resolveLang(options.lang)
+  let agentsPlan = getClaudeAgentsPlan(lang)
+  console.log(chalk.dim(`\nLanguage: ${LANG_LABELS[lang]}`))
+  console.log("\nWill install Claude kit into:")
+  console.log(`  ${chalk.cyan(CLAUDE_GLOBAL_INSTRUCTIONS_PATH)} (managed block only)`)
+  console.log(`  ${chalk.cyan(CLAUDE_PLUGIN_DEST)}\n`)
+  describeClaudeAgentsPlan(agentsPlan)
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be written.\n"))
+  } else {
+    const selectedPlan = await resolveClaudeAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
+  }
+
+  const agentsAction = applyClaudeAgentsPlan(agentsPlan, options.dryRun)
+  console.log(chalk.green("  ✓") + `  CLAUDE.md managed block (${agentsAction})`)
+
+  const plugin = copyClaudePlugin(options.force, options.dryRun)
+  if (plugin.skipped) {
+    console.log(chalk.yellow("  !") + "  plugin skipped (existing directory is not a coding-agent-kit plugin; use --force to overwrite)")
+  } else {
+    console.log(chalk.green("  ✓") + `  plugin — ${plugin.copied} files copied`)
+  }
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Install complete!\n"))
+  console.log("Next steps:")
+  console.log(`  ${chalk.cyan("1.")} Restart Claude Code or start a new Claude session`)
+  console.log(`  ${chalk.cyan("2.")} Use ${chalk.bold("/coding-agent-kit:scan-project")} to initialize an existing project\n`)
+}
+
 // ─── Commands: update ────────────────────────────────────────────────────────
 
 async function cmdUpdate(options: CommandOptions) {
   const target = await resolveTarget(options.target)
   if (target === "opencode") return cmdUpdateOpencode(options)
-  return cmdUpdateCodex(options)
+  if (target === "codex") return cmdUpdateCodex(options)
+  if (target === "antigravity") return cmdUpdateAntigravity(options)
+  return cmdUpdateClaude(options)
 }
 
 async function cmdUpdateOpencode(options: CommandOptions) {
@@ -1239,6 +1768,68 @@ async function cmdUpdateCodex(options: CommandOptions) {
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
 }
 
+async function cmdUpdateAntigravity(options: CommandOptions) {
+  console.log(chalk.bold(`\n🔄 ${CLI_NAME} — Antigravity update\n`))
+
+  const currentLang = getAntigravityManagedLang()
+  const lang = options.lang ? await resolveLang(options.lang) : currentLang ?? "en"
+  const surfaces = await resolveAntigravitySurfaces("update", options.dryRun)
+  if (surfaces.length === 0) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  console.log(chalk.dim(`Language: ${LANG_LABELS[lang]}`))
+  console.log(chalk.yellow("This will overwrite coding-agent-kit Antigravity plugin files only. Hooks, sidecars, MCP, settings, and permissions are not changed.\n"))
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be written.\n"))
+  }
+
+  for (const surface of surfaces) {
+    const result = copyAntigravityPlugin(antigravitySurfacePath(surface), lang, options.force, options.dryRun)
+    if (result.skipped) {
+      console.log(chalk.yellow("  !") + `  ${antigravitySurfaceLabel(surface)} skipped (existing directory is not a coding-agent-kit plugin; use --force to overwrite)`)
+    } else {
+      console.log(chalk.green("  ✓") + `  ${antigravitySurfaceLabel(surface)} — ${result.copied} files updated`)
+    }
+  }
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
+}
+
+async function cmdUpdateClaude(options: CommandOptions) {
+  console.log(chalk.bold(`\n🔄 ${CLI_NAME} — Claude update\n`))
+
+  const currentLang = getClaudeManagedLang()
+  const lang = options.lang ? await resolveLang(options.lang) : currentLang ?? "en"
+  let agentsPlan = getClaudeAgentsPlan(lang)
+  describeClaudeAgentsPlan(agentsPlan)
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be written.\n"))
+  } else {
+    const selectedPlan = await resolveClaudeAgentsPlanForWrite(agentsPlan)
+    if (!selectedPlan) {
+      console.log(chalk.dim("Cancelled."))
+      process.exit(0)
+    }
+    agentsPlan = selectedPlan
+  }
+
+  const agentsAction = applyClaudeAgentsPlan(agentsPlan, options.dryRun)
+  console.log(chalk.green("  ✓") + `  CLAUDE.md managed block (${agentsAction})`)
+
+  const plugin = copyClaudePlugin(options.force, options.dryRun)
+  if (plugin.skipped) {
+    console.log(chalk.yellow("  !") + "  plugin skipped (existing directory is not a coding-agent-kit plugin; use --force to overwrite)")
+  } else {
+    console.log(chalk.green("  ✓") + `  plugin — ${plugin.copied} files updated`)
+  }
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Update complete!\n"))
+}
+
 // ─── Commands: uninstall ─────────────────────────────────────────────────────
 
 type RemoveResult = "removed" | "updated" | "missing" | "skipped"
@@ -1246,7 +1837,9 @@ type RemoveResult = "removed" | "updated" | "missing" | "skipped"
 async function cmdUninstall(options: CommandOptions) {
   const target = await resolveTarget(options.target)
   if (target === "opencode") return cmdUninstallOpencode(options)
-  return cmdUninstallCodex(options)
+  if (target === "codex") return cmdUninstallCodex(options)
+  if (target === "antigravity") return cmdUninstallAntigravity(options)
+  return cmdUninstallClaude(options)
 }
 
 function printRemoveResult(label: string, result: RemoveResult) {
@@ -1279,6 +1872,17 @@ function removeManagedFile(path: string, marker: string, dryRun = false): Remove
   const content = readFileSync(path, "utf-8")
   if (!content.includes(marker)) return "skipped"
   safeRemovePath(path, dryRun)
+  return "removed"
+}
+
+function removeManagedPluginDirectory(
+  dirPath: string,
+  manifestRelativePath: string,
+  dryRun = false
+): RemoveResult {
+  if (!existsSync(dirPath)) return "missing"
+  if (!isManagedPluginDirectory(dirPath, manifestRelativePath)) return "skipped"
+  safeRemovePath(dirPath, dryRun)
   return "removed"
 }
 
@@ -1391,6 +1995,51 @@ async function cmdUninstallOpencode(options: CommandOptions) {
   console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Uninstall complete.\n"))
 }
 
+async function cmdUninstallAntigravity(options: CommandOptions) {
+  console.log(chalk.bold(`\n🗑 ${CLI_NAME} — Antigravity uninstall\n`))
+  console.log("Will remove only coding-agent-kit managed Antigravity plugin directories.\n")
+
+  const surfaces = await resolveAntigravitySurfaces("uninstall", options.dryRun)
+  if (surfaces.length === 0) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be removed.\n"))
+  } else if (!await confirm("Remove coding-agent-kit managed Antigravity plugin files?", false)) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  for (const surface of surfaces) {
+    const result = removeManagedPluginDirectory(antigravitySurfacePath(surface), "plugin.json", options.dryRun)
+    printRemoveResult(antigravitySurfaceLabel(surface), result)
+  }
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Uninstall complete.\n"))
+}
+
+async function cmdUninstallClaude(options: CommandOptions) {
+  console.log(chalk.bold(`\n🗑 ${CLI_NAME} — Claude uninstall\n`))
+  console.log("Will remove only coding-agent-kit managed Claude files and blocks.\n")
+
+  if (options.dryRun) {
+    console.log(chalk.yellow("Dry run: no files will be removed.\n"))
+  } else if (!await confirm("Remove coding-agent-kit managed Claude files?", false)) {
+    console.log(chalk.dim("Cancelled."))
+    process.exit(0)
+  }
+
+  const agentsResult = removeManagedBlockFromFile(CLAUDE_GLOBAL_INSTRUCTIONS_PATH, CLAUDE_MANAGED_START_PREFIX, options.dryRun)
+  printRemoveResult("CLAUDE.md", agentsResult)
+
+  const pluginResult = removeManagedPluginDirectory(CLAUDE_PLUGIN_DEST, join(".claude-plugin", "plugin.json"), options.dryRun)
+  printRemoveResult("plugin/coding-agent-kit", pluginResult)
+
+  console.log(chalk.bold.green(options.dryRun ? "\n✅ Dry run complete.\n" : "\n✅ Uninstall complete.\n"))
+}
+
 // ─── Commands: status ────────────────────────────────────────────────────────
 
 async function printPackageStatus(target?: Target) {
@@ -1403,7 +2052,7 @@ async function printPackageStatus(target?: Target) {
     return
   }
 
-  const updateTarget = target ? target : "<opencode|codex>"
+  const updateTarget = target ? target : `<${TARGETS.join("|")}>`
   const comparison = compareVersions(current, latest)
   const newer = comparison === -1
   const latestLabel = newer
@@ -1465,6 +2114,27 @@ function getCodexPluginStatusItem(): StatusItem {
   }
 }
 
+function getPluginManifestStatusItem(label: string, manifestPath: string): StatusItem {
+  if (!existsSync(manifestPath)) return { label, ok: false }
+
+  try {
+    const manifest = readJsonFile(manifestPath)
+    if (!isRecord(manifest) || manifest.name !== PLUGIN_NAME) {
+      return { label, ok: false, note: "not a coding-agent-kit plugin" }
+    }
+    const version = typeof manifest.version === "string" ? manifest.version : null
+    return {
+      label,
+      ok: true,
+      version,
+      stale: isStaleVersion(version),
+      note: version ? undefined : "version unknown",
+    }
+  } catch {
+    return { label, ok: true, stale: true, note: "manifest unreadable" }
+  }
+}
+
 function printStatusItems(items: StatusItem[]) {
   for (const item of items) {
     const icon = item.ok ? chalk.green("  ✓") : chalk.red("  ✗")
@@ -1504,9 +2174,13 @@ async function cmdStatus(options: CommandOptions) {
 
   if (options.target === "opencode") return cmdStatusOpencode()
   if (options.target === "codex") return cmdStatusCodex()
+  if (options.target === "antigravity") return cmdStatusAntigravity()
+  if (options.target === "claude") return cmdStatusClaude()
 
   await cmdStatusOpencode()
   await cmdStatusCodex()
+  await cmdStatusAntigravity()
+  await cmdStatusClaude()
 }
 
 async function cmdStatusOpencode() {
@@ -1563,10 +2237,65 @@ async function cmdStatusCodex() {
   console.log("")
 }
 
-function hasCodexManagedBlock(): boolean {
-  const agentsPath = join(CODEX_HOME, "AGENTS.md")
-  if (!existsSync(agentsPath)) return false
-  return findCodexManagedBlock(readFileSync(agentsPath, "utf-8")) !== null
+async function cmdStatusAntigravity() {
+  console.log(chalk.bold(`\n📋 ${CLI_NAME} — Antigravity status\n`))
+
+  const detected = detectAntigravity()
+  console.log("Antigravity: " + (detected.length > 0
+    ? chalk.green(`✓ detected ${chalk.dim(`(${detected.join(", ")})`)}`)
+    : chalk.yellow("not detected")))
+
+  const skillNames = listDirNames(join(ANTIGRAVITY_DIR, "plugin", "skills"))
+  const checks: StatusItem[] = []
+  const installedSurfaces = getInstalledAntigravitySurfaces()
+  const surfaces = installedSurfaces.length > 0 ? installedSurfaces : (["app", "cli"] as AntigravitySurface[])
+
+  for (const surface of surfaces) {
+    const pluginPath = antigravitySurfacePath(surface)
+    const prefix = surface === "app" ? "app" : "cli"
+    checks.push(getPluginManifestStatusItem(`${prefix}/plugin`, join(pluginPath, "plugin.json")))
+    if (installedSurfaces.includes(surface)) {
+      checks.push(getManagedFileStatusItem(`${prefix}/rules/coding-agent-kit`, join(pluginPath, "rules", "coding-agent-kit.md")))
+      checks.push(...skillNames.map(name =>
+        getManagedFileStatusItem(`${prefix}/skills/${name}`, join(pluginPath, "skills", name, "SKILL.md"))
+      ))
+    }
+  }
+
+  console.log("\nAntigravity plugin files:")
+  printStatusItems(checks)
+
+  const lang = getAntigravityManagedLang()
+  if (lang) console.log(chalk.dim(`\nCommunication language: ${LANG_LABELS[lang]}`))
+
+  printInstallStatusSummary("Antigravity", "antigravity", checks)
+  console.log("")
+}
+
+async function cmdStatusClaude() {
+  console.log(chalk.bold(`\n📋 ${CLI_NAME} — Claude status\n`))
+
+  const detected = detectClaude()
+  console.log("Claude: " + (detected.length > 0
+    ? chalk.green(`✓ detected ${chalk.dim(`(${detected.join(", ")})`)}`)
+    : chalk.yellow("not detected")))
+
+  const skillNames = listDirNames(join(CLAUDE_DIR, "plugin", "skills"))
+
+  const checks = [
+    getManagedBlockStatusItem("CLAUDE.md managed block", CLAUDE_GLOBAL_INSTRUCTIONS_PATH, CLAUDE_MANAGED_START_PREFIX),
+    getPluginManifestStatusItem("plugin/coding-agent-kit", join(CLAUDE_PLUGIN_DEST, ".claude-plugin", "plugin.json")),
+    ...skillNames.map(name => getManagedFileStatusItem(`skills/${name}`, join(CLAUDE_PLUGIN_DEST, "skills", name, "SKILL.md"))),
+  ]
+
+  console.log("\nClaude files:")
+  printStatusItems(checks)
+
+  const lang = getClaudeManagedLang()
+  if (lang) console.log(chalk.dim(`\nCommunication language: ${LANG_LABELS[lang]}`))
+
+  printInstallStatusSummary("Claude", "claude", checks)
+  console.log("")
 }
 
 function hasCodexMarketplaceEntry(): boolean {
@@ -1585,7 +2314,9 @@ function hasCodexMarketplaceEntry(): boolean {
 async function cmdLang(options: CommandOptions) {
   const target = await resolveTarget(options.target)
   if (target === "opencode") return cmdLangOpencode(options)
-  return cmdLangCodex(options)
+  if (target === "codex") return cmdLangCodex(options)
+  if (target === "antigravity") return cmdLangAntigravity(options)
+  return cmdLangClaude(options)
 }
 
 async function cmdLangOpencode(options: CommandOptions) {
@@ -1618,20 +2349,61 @@ async function cmdLangCodex(options: CommandOptions) {
   console.log("")
 }
 
+async function cmdLangAntigravity(options: CommandOptions) {
+  console.log(chalk.bold(`\n🌐 ${CLI_NAME} — set Antigravity language\n`))
+
+  const lang = await resolveLang(options.lang)
+  const surfaces = await resolveAntigravitySurfaces("lang", options.dryRun)
+  const installedSurfaces = getInstalledAntigravitySurfaces()
+  const selected = surfaces.filter(surface => installedSurfaces.includes(surface))
+
+  if (selected.length === 0) {
+    console.log(chalk.red(`Antigravity plugin not found. Run ${CLI_NAME} install --target antigravity first.`))
+    process.exit(1)
+  }
+
+  for (const surface of selected) {
+    const result = copyAntigravityPlugin(antigravitySurfacePath(surface), lang, true, options.dryRun)
+    if (result.skipped) {
+      console.log(chalk.yellow("  !") + `  ${antigravitySurfaceLabel(surface)} skipped`)
+    } else {
+      console.log(chalk.green("  ✓") + `  ${antigravitySurfaceLabel(surface)} set to: ${LANG_LABELS[lang]}`)
+    }
+  }
+  if (options.dryRun) console.log(chalk.yellow("  Dry run: no files were written."))
+  console.log("")
+}
+
+async function cmdLangClaude(options: CommandOptions) {
+  console.log(chalk.bold(`\n🌐 ${CLI_NAME} — set Claude language\n`))
+
+  const lang = await resolveLang(options.lang)
+  const changed = setClaudeLang(lang, options.dryRun)
+  if (!changed) {
+    console.log(chalk.red(`Claude managed block not found. Run ${CLI_NAME} install --target claude first.`))
+    process.exit(1)
+  }
+
+  console.log(chalk.green("  ✓") + `  Communication section set to: ${LANG_LABELS[lang]}`)
+  if (options.dryRun) console.log(chalk.yellow("  Dry run: no files were written."))
+  console.log("")
+}
+
 // ─── Help/version ────────────────────────────────────────────────────────────
 
 function cmdHelp() {
   const langList = SUPPORTED_LANGS.join("|")
+  const targetList = TARGETS.join("|")
   console.log(`
 ${chalk.bold(CLI_NAME)} — setup kit for coding agents
 
   ${chalk.bold("Commands:")}
-  ${chalk.cyan("install")} --target <opencode|codex>  Install kit for one platform
-  ${chalk.cyan("update")} --target <opencode|codex>   Update managed kit files
-  ${chalk.cyan("uninstall")} --target <opencode|codex>
+  ${chalk.cyan("install")} --target <${targetList}>  Install kit for one platform
+  ${chalk.cyan("update")} --target <${targetList}>   Update managed kit files
+  ${chalk.cyan("uninstall")} --target <${targetList}>
                                       Remove managed kit files
-  ${chalk.cyan("status")} [--target <opencode|codex>] Check installation status
-  ${chalk.cyan("lang")} <${langList}> --target <opencode|codex>
+  ${chalk.cyan("status")} [--target <${targetList}>] Check installation status
+  ${chalk.cyan("lang")} <${langList}> --target <${targetList}>
                                       Set the Communication language
   ${chalk.cyan("help")}                              Show this help
 
@@ -1647,9 +2419,11 @@ ${SUPPORTED_LANGS.map(c => `  ${c} — ${LANG_LABELS[c]}`).join("\n")}
 ${chalk.bold("Examples:")}
   ${CLI_NAME} install --target codex --lang vi
   ${CLI_NAME} install --target opencode --lang ja
+  ${CLI_NAME} install --target antigravity --lang vi
+  ${CLI_NAME} install --target claude --lang vi
   ${CLI_NAME} update --target codex --dry-run
-  ${CLI_NAME} uninstall --target opencode --dry-run
-  ${CLI_NAME} lang ko --target opencode
+  ${CLI_NAME} uninstall --target antigravity --dry-run
+  ${CLI_NAME} lang ko --target claude
   ${CLI_NAME} status
 `)
 }

@@ -7,7 +7,7 @@ description: >
   project guidance, and suggest useful repo-scoped skills.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
 
 ## Process
 

@@ -11,6 +11,8 @@ Supported targets:
 
 - [Codex](https://developers.openai.com/codex)
 - [opencode](https://opencode.ai)
+- [Google Antigravity](https://antigravity.google/docs)
+- [Claude Code](https://code.claude.com/docs/en/overview)
 
 `coding-agent-kit` installs one platform at a time.
 
@@ -56,6 +58,29 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
   `/implement`, `/review`
 - Language overlay for the Communication section
 
+### Antigravity
+
+- Native Antigravity plugin with `plugin.json`, `skills/`, and `rules/`
+- App/editor plugin path: `~/.gemini/config/plugins/coding-agent-kit/`
+- CLI plugin path: `~/.gemini/antigravity-cli/plugins/coding-agent-kit/`
+- 8 plugin skills using platform-native names such as `scan-project`,
+  `write-plan`, and `implement-task`
+- Language overlay for the plugin rule's Communication section
+
+The Antigravity installer does not edit settings, hooks, sidecars, MCP,
+permissions, sandbox, model, auth, telemetry, or provider configuration.
+
+### Claude
+
+- Managed global guidance block in `~/.claude/CLAUDE.md`
+- Native Claude Code skills-directory plugin at
+  `~/.claude/skills/coding-agent-kit/`
+- 8 plugin skills exposed through the `coding-agent-kit` namespace
+- Language overlay for the Communication section
+
+The Claude installer does not edit settings, hooks, monitors, MCP, permissions,
+sandbox, model, auth, telemetry, or provider configuration.
+
 ---
 
 ## Requirements
@@ -63,6 +88,8 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
 - Node.js 18+
 - Codex app, IDE extension, or CLI for the `codex` target
 - opencode installed for the `opencode` target
+- Antigravity app/editor or CLI for the `antigravity` target
+- Claude Code CLI, app, or IDE extension for the `claude` target
 
 ---
 
@@ -84,6 +111,18 @@ Install for opencode:
 coding-agent-kit install --target opencode
 ```
 
+Install for Antigravity:
+
+```bash
+coding-agent-kit install --target antigravity
+```
+
+Install for Claude Code:
+
+```bash
+coding-agent-kit install --target claude
+```
+
 Preview changes without writing files:
 
 ```bash
@@ -95,12 +134,12 @@ coding-agent-kit install --target codex --dry-run
 ## Commands
 
 ```bash
-coding-agent-kit install --target <opencode|codex>
-coding-agent-kit update --target <opencode|codex>
-coding-agent-kit uninstall --target <opencode|codex>
+coding-agent-kit install --target <opencode|codex|antigravity|claude>
+coding-agent-kit update --target <opencode|codex|antigravity|claude>
+coding-agent-kit uninstall --target <opencode|codex|antigravity|claude>
 coding-agent-kit status
-coding-agent-kit status --target <opencode|codex>
-coding-agent-kit lang <en|vi|ja|ko|zh|es|fr|de> --target <opencode|codex>
+coding-agent-kit status --target <opencode|codex|antigravity|claude>
+coding-agent-kit lang <en|vi|ja|ko|zh|es|fr|de> --target <opencode|codex|antigravity|claude>
 coding-agent-kit help
 ```
 
@@ -108,13 +147,14 @@ Options:
 
 ```bash
 --lang <en|vi|ja|ko|zh|es|fr|de>
---target <opencode|codex>
+--target <opencode|codex|antigravity|claude>
 --dry-run
 --force
 ```
 
-`--force` is mainly for replacing conflicting Codex skill folders that already
-exist and are not marked as managed by this kit.
+`--force` replaces conflicting managed destinations where supported. Use it
+only when an existing `coding-agent-kit` destination is not marked as managed
+but you still want the kit to overwrite it.
 
 ---
 
@@ -138,9 +178,13 @@ Examples:
 ```bash
 coding-agent-kit install --target codex --lang vi
 coding-agent-kit install --target opencode --lang ja
+coding-agent-kit install --target antigravity --lang vi
+coding-agent-kit install --target claude --lang vi
 
 coding-agent-kit lang ko --target codex
 coding-agent-kit lang en --target opencode
+coding-agent-kit lang vi --target antigravity
+coding-agent-kit lang vi --target claude
 ```
 
 Everything else stays in English so the technical instructions remain easy to
@@ -229,6 +273,58 @@ opencode
 
 ---
 
+## Antigravity Workflow
+
+After installing:
+
+```bash
+coding-agent-kit install --target antigravity
+```
+
+Restart Antigravity or start a new Antigravity CLI session. Use the plugin
+skills by their native names:
+
+```text
+scan-project
+setup-project
+brainstorm-feature
+write-plan
+implement-task
+review-feature
+```
+
+The scan workflow creates or updates project docs and
+`.agents/rules/project-guidance.md`. It does not edit Antigravity settings,
+hooks, sidecars, MCP, permissions, sandbox, auth, telemetry, model, or provider
+configuration unless you explicitly ask for that.
+
+---
+
+## Claude Workflow
+
+After installing:
+
+```bash
+coding-agent-kit install --target claude
+```
+
+Restart Claude Code or start a new session. Use namespaced plugin skills:
+
+```text
+/coding-agent-kit:scan-project
+/coding-agent-kit:setup-project
+/coding-agent-kit:brainstorm-feature
+/coding-agent-kit:write-plan
+/coding-agent-kit:implement-task
+/coding-agent-kit:review-feature
+```
+
+The scan workflow creates or updates project docs and `CLAUDE.md`. It does not
+edit Claude settings, hooks, monitors, MCP, permissions, sandbox, auth,
+telemetry, model, or provider configuration unless you explicitly ask for that.
+
+---
+
 ## Existing Codex Setups
 
 The Codex installer is designed for machines that already have Codex configured.
@@ -294,6 +390,12 @@ codex plugin add coding-agent-kit@personal
 For opencode, `update` refreshes the managed AGENTS block, skills, commands,
 and merges new `opencode.json` keys without overwriting existing keys.
 
+For Antigravity, `update` refreshes only the selected
+`coding-agent-kit` plugin files under the app/editor and/or CLI plugin paths.
+
+For Claude, `update` refreshes the managed `CLAUDE.md` block and the
+`coding-agent-kit` skills-directory plugin.
+
 ---
 
 ## Uninstall
@@ -301,6 +403,8 @@ and merges new `opencode.json` keys without overwriting existing keys.
 ```bash
 coding-agent-kit uninstall --target codex
 coding-agent-kit uninstall --target opencode
+coding-agent-kit uninstall --target antigravity
+coding-agent-kit uninstall --target claude
 ```
 
 Preview removal without deleting files:
@@ -317,6 +421,8 @@ coding-agent-kit uninstall --target codex --dry-run
   command is available.
 - opencode: removes the managed AGENTS block, managed skills, and managed
   commands.
+- Antigravity: removes selected managed plugin directories only.
+- Claude: removes the managed `CLAUDE.md` block and managed plugin directory.
 - `opencode.json` is preserved by default because it may contain user changes.
 
 ---
@@ -327,7 +433,9 @@ coding-agent-kit uninstall --target codex --dry-run
 kit/
 ├── platforms/
 │   ├── opencode/         # opencode kit files
-│   └── codex/            # Codex AGENTS source and plugin bundle
+│   ├── codex/            # Codex AGENTS source and plugin bundle
+│   ├── antigravity/      # Antigravity plugin bundle
+│   └── claude/           # Claude CLAUDE.md source and plugin bundle
 └── shared/
     └── overlays/         # Communication language overlays
 ```

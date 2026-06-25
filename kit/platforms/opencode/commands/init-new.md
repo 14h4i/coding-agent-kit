@@ -3,7 +3,7 @@ description: Plan and set up a brand new project from scratch
 agent: plan
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
 
 Use the `coding-agent-setup-project` skill to start a new project.
 

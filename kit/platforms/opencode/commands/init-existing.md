@@ -3,7 +3,7 @@ description: Scan and set up opencode for an existing project
 agent: build
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
 
 Use the `coding-agent-scan-project` skill to analyze this entire project.
 

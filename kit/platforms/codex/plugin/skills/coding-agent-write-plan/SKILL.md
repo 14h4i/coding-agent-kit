@@ -6,7 +6,7 @@ description: >
   Produce a file-by-file plan with executable tasks and no placeholders.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.0.4 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
 
 ## Prerequisites
 

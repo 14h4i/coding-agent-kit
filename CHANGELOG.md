@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.0] - 2026-06-25
+
+### Added
+
+- Added `antigravity` target with native Google Antigravity plugin installs for
+  app/editor and CLI surfaces.
+- Added `claude` target with a Claude Code skills-directory plugin and managed
+  global `CLAUDE.md` guidance block.
+- Added install, update, uninstall, status, and language support for
+  `antigravity` and `claude`.
+
+### Changed
+
+- Bumped managed file markers and plugin manifests to `1.1.0`.
+- Documented native install paths and workflow invocation for all supported
+  targets.
+
 ## [1.0.4] - 2026-06-24
 
 ### Added
