@@ -1,6 +1,6 @@
 {
   "name": "coding-agent-kit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Setup kit for coding agents — install structured workflows for Codex, opencode, Antigravity, and Claude Code",
   "type": "module",
   "bin": {
@@ -8,7 +8,8 @@
   },
   "files": [
     "dist",
-    "kit"
+    "kit",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsup",

@@ -45,8 +45,14 @@ custom one-off prompts:
 
 1. `/coding-agent-kit:brainstorm-feature` - explore intent and approve a design.
 2. `/coding-agent-kit:write-plan` - turn the design into concrete tasks.
-3. `/coding-agent-kit:implement-task` - implement one task at a time.
+3. `/coding-agent-kit:implement-task` - implement one task at a time, or
+   `/coding-agent-kit:implement-plan` - implement all remaining tasks when the
+   approved plan is clear.
 4. `/coding-agent-kit:review-feature` - review implementation against the design.
+
+Use `/coding-agent-kit:implement-task` as the safer default when checkpoints
+matter. Use `/coding-agent-kit:implement-plan` only as an accelerated mode; it
+does not run `/coding-agent-kit:review-feature` automatically.
 
 For small, clear, single-file changes, proceed directly with the normal Claude
 Code workflow and keep the final report short.

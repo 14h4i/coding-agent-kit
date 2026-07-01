@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0] - 2026-07-01
+
+### Added
+
+- Added `implement-plan` as an accelerated implementation skill for Codex,
+  opencode, Antigravity, and Claude.
+- Added the opencode `/implement-plan` command.
+
+### Changed
+
+- Clarified when to use one-task implementation versus full-plan
+  implementation across README, global guidance, and plan/implement skills.
+- Bumped package version, managed file markers, and plugin manifests to
+  `1.2.0`.
+
 ## [1.1.0] - 2026-06-25
 
 ### Added

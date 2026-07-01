@@ -68,11 +68,12 @@ Examples:
 - `coding-agent-scan-project`
 - `coding-agent-write-plan`
 - `coding-agent-implement-task`
+- `coding-agent-implement-plan`
 - `coding-agent-review-feature`
 
 Claude and Antigravity plugin skills use shorter names such as `scan-project`
-and `write-plan` because the plugin namespace already identifies
-`coding-agent-kit`.
+`write-plan`, and `implement-plan` because the plugin namespace already
+identifies `coding-agent-kit`.
 
 Skills generated later for a specific project should not automatically use the
 kit prefix. They should follow the project's domain and workflow language, such

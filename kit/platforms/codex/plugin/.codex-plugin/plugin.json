@@ -1,6 +1,6 @@
 {
   "name": "coding-agent-kit",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Structured project understanding, planning, implementation, and review workflows for Codex.",
   "author": {
     "name": "14h4i",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "coding-agent-kit",
     "shortDescription": "Project setup, planning, implementation, and review skills for Codex.",
-    "longDescription": "A focused Codex workflow kit with reusable skills for scanning projects, writing docs, creating project skills, planning features, implementing one task at a time, and reviewing completed work.",
+    "longDescription": "A focused Codex workflow kit with reusable skills for scanning projects, writing docs, creating project skills, planning features, implementing one task at a time or all remaining approved tasks, and reviewing completed work.",
     "developerName": "14h4i",
     "category": "Productivity",
     "capabilities": [
@@ -30,6 +30,7 @@
     "defaultPrompt": [
       "Scan this repo and set up Codex guidance.",
       "Plan this feature before implementation.",
+      "Implement the approved plan.",
       "Review this feature against the plan."
     ],
     "brandColor": "#2563EB"

@@ -23,7 +23,7 @@ Supported targets:
 ### Codex
 
 - Managed global guidance block in `~/.codex/AGENTS.md`
-- 8 personal Codex skills in `~/.agents/skills/`
+- 9 personal Codex skills in `~/.agents/skills/`
 - A local Codex plugin at `~/plugins/coding-agent-kit`
 - A personal marketplace entry in `~/.agents/plugins/marketplace.json`
 - Language overlay for the Communication section
@@ -37,6 +37,7 @@ Codex skill names are prefixed to avoid collisions:
 - `coding-agent-brainstorm-feature`
 - `coding-agent-write-plan`
 - `coding-agent-implement-task`
+- `coding-agent-implement-plan`
 - `coding-agent-review-feature`
 
 Skills generated later for a specific project should follow that project's
@@ -52,10 +53,10 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
 
 - Managed global guidance block in `~/.config/opencode/AGENTS.md`
 - `opencode.json` with safe default permissions
-- 8 global skills using the same `coding-agent-*` prefix
-- 7 global commands:
+- 9 global skills using the same `coding-agent-*` prefix
+- 8 global commands:
   `/init-existing`, `/init-new`, `/skill-new`, `/brainstorm`, `/plan`,
-  `/implement`, `/review`
+  `/implement`, `/implement-plan`, `/review`
 - Language overlay for the Communication section
 
 ### Antigravity
@@ -63,8 +64,8 @@ available in the personal marketplace for the Codex plugin UI and sharing flow.
 - Native Antigravity plugin with `plugin.json`, `skills/`, and `rules/`
 - App/editor plugin path: `~/.gemini/config/plugins/coding-agent-kit/`
 - CLI plugin path: `~/.gemini/antigravity-cli/plugins/coding-agent-kit/`
-- 8 plugin skills using platform-native names such as `scan-project`,
-  `write-plan`, and `implement-task`
+- 9 plugin skills using platform-native names such as `scan-project`,
+  `write-plan`, `implement-task`, and `implement-plan`
 - Language overlay for the plugin rule's Communication section
 
 The Antigravity installer does not edit settings, hooks, sidecars, MCP,
@@ -75,7 +76,7 @@ permissions, sandbox, model, auth, telemetry, or provider configuration.
 - Managed global guidance block in `~/.claude/CLAUDE.md`
 - Native Claude Code skills-directory plugin at
   `~/.claude/skills/coding-agent-kit/`
-- 8 plugin skills exposed through the `coding-agent-kit` namespace
+- 9 plugin skills exposed through the `coding-agent-kit` namespace
 - Language overlay for the Communication section
 
 The Claude installer does not edit settings, hooks, monitors, MCP, permissions,
@@ -235,12 +236,21 @@ confirmation, scaffolds the project, then runs the project scan workflow.
 ```text
 $coding-agent-brainstorm-feature
 $coding-agent-write-plan
-$coding-agent-implement-task
-$coding-agent-review-feature
 ```
 
-The implementation skill intentionally handles one task at a time and stops
-for review before continuing.
+Choose one implementation mode after the plan is approved:
+
+- `$coding-agent-implement-task` handles one task at a time and stops for a
+  review checkpoint. This is the safer default.
+- `$coding-agent-implement-plan` handles all remaining tasks sequentially,
+  verifies each one, then stops before the final review.
+
+Use `$coding-agent-review-feature` after implementation to review the full
+feature against the design.
+
+```text
+$coding-agent-review-feature
+```
 
 ---
 
@@ -267,7 +277,13 @@ opencode
 ```text
 /brainstorm
 /plan
-/implement
+```
+
+Use `/implement` for one task at a time. Use `/implement-plan` only when the
+plan is clear and you want all remaining tasks completed in one run. Run
+`/review` after either implementation mode.
+
+```text
 /review
 ```
 
@@ -290,8 +306,13 @@ setup-project
 brainstorm-feature
 write-plan
 implement-task
+implement-plan
 review-feature
 ```
+
+Use `implement-task` for one task at a time. Use `implement-plan` only when the
+plan is clear and you want all remaining tasks completed in one run. Run
+`review-feature` after either implementation mode.
 
 The scan workflow creates or updates project docs and
 `.agents/rules/project-guidance.md`. It does not edit Antigravity settings,
@@ -316,8 +337,14 @@ Restart Claude Code or start a new session. Use namespaced plugin skills:
 /coding-agent-kit:brainstorm-feature
 /coding-agent-kit:write-plan
 /coding-agent-kit:implement-task
+/coding-agent-kit:implement-plan
 /coding-agent-kit:review-feature
 ```
+
+Use `/coding-agent-kit:implement-task` for one task at a time. Use
+`/coding-agent-kit:implement-plan` only when the plan is clear and you want all
+remaining tasks completed in one run. Run `/coding-agent-kit:review-feature`
+after either implementation mode.
 
 The scan workflow creates or updates project docs and `CLAUDE.md`. It does not
 edit Claude settings, hooks, monitors, MCP, permissions, sandbox, auth,
@@ -450,3 +477,7 @@ See [kit/README.md](kit/README.md) for details.
 ## License
 
 MIT - see [LICENSE](LICENSE).
+
+## Support
+
+<a href="https://www.buymeacoffee.com/14h4i" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>

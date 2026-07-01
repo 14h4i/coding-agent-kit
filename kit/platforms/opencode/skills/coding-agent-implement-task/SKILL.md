@@ -7,7 +7,7 @@ description: >
   stops for review before continuing.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
 
 ## Prerequisites
 
@@ -74,3 +74,5 @@ confirmation — each task gets its own review checkpoint.
 - If the plan file has been edited since the last run (tasks added, removed,
   or reordered), follow the current state of the file — the plan is the
   live source of truth.
+- Use `coding-agent-implement-plan` or `/implement-plan` only when the user
+  explicitly wants all remaining unchecked tasks implemented in one run.

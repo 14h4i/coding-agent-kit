@@ -6,7 +6,7 @@ description: >
   Produce a file-by-file plan with executable tasks and no placeholders.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
 
 ## Prerequisites
 
@@ -71,6 +71,13 @@ Save to `docs/plans/YYYY-MM-DD-<feature-name>-plan.md`.
 
 ## After the Plan
 
-Use `$coding-agent-implement-task` to execute one task at a time. If the plan
-needs to change mid-work, edit the plan file directly and leave completed tasks
-checked.
+Use `$coding-agent-implement-task` to execute one task at a time. This is the
+safer default when review checkpoints matter.
+
+Use `$coding-agent-implement-plan` only when the approved plan is clear and the
+user wants all remaining unchecked tasks implemented in one run. After either
+implementation mode, use `$coding-agent-review-feature` for the final feature
+review.
+
+If the plan needs to change mid-work, edit the plan file directly and leave
+completed tasks checked.

@@ -45,8 +45,14 @@ deprecated custom prompts:
 
 1. `$coding-agent-brainstorm-feature` - explore intent and approve a design.
 2. `$coding-agent-write-plan` - turn the design into concrete tasks.
-3. `$coding-agent-implement-task` - implement one task at a time.
+3. `$coding-agent-implement-task` - implement one task at a time, or
+   `$coding-agent-implement-plan` - implement all remaining tasks when the
+   approved plan is clear.
 4. `$coding-agent-review-feature` - review implementation against the design.
+
+Use `$coding-agent-implement-task` as the safer default when checkpoints matter.
+Use `$coding-agent-implement-plan` only as an accelerated mode; it does not run
+the final review automatically.
 
 For small, clear, single-file changes, proceed directly with the normal Codex
 workflow and keep the final report short.

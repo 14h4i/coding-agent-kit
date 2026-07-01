@@ -6,7 +6,7 @@ description: >
   Implement exactly one task, verify it, mark it done, and stop for review.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
 
 ## Prerequisites
 
@@ -67,3 +67,5 @@ start the next task.
 
 - One task per run.
 - The current plan file is the source of truth.
+- Use `/coding-agent-kit:implement-plan` only when the user explicitly wants
+  all remaining unchecked tasks implemented in one run.

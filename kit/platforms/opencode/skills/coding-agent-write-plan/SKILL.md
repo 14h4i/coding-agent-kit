@@ -8,7 +8,7 @@ description: >
   without guessing.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
 
 ## Prerequisites
 
@@ -85,8 +85,14 @@ Save to `docs/plans/YYYY-MM-DD-<feature-name>-plan.md`.
 ## After the plan
 
 Use `/implement` to execute tasks one at a time, with a review checkpoint
-after each one. The plan file is the source of truth for "what" — AGENTS.md
-governs "how to work" (scope control, validation, response format).
+after each one. This is the safer default.
+
+Use `/implement-plan` only when the approved plan is clear and the user wants
+all remaining unchecked tasks implemented in one run. After either
+implementation mode, use `/review` for the final feature review.
+
+The plan file is the source of truth for "what" — AGENTS.md governs "how to
+work" (scope control, validation, response format).
 
 If the plan needs to change mid-implementation (the design was wrong, the
 codebase shifted), edit the plan file directly — update or add tasks, leave

@@ -1,6 +1,6 @@
 # coding-agent-kit - Antigravity Rules
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.1.0 lang=en -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 lang=en -->
 
 Applies to Google Antigravity when the coding-agent-kit plugin is loaded. Workspace rules in `.agents/rules/` may add more specific repository guidance.
 
@@ -46,11 +46,17 @@ custom one-off prompts:
 
 1. the `brainstorm-feature` skill - explore intent and approve a design.
 2. the `write-plan` skill - turn the design into concrete tasks.
-3. the `implement-task` skill - implement one task at a time.
+3. the `implement-task` skill - implement one task at a time, or the
+   `implement-plan` skill - implement all remaining tasks when the approved
+   plan is clear.
 4. the `review-feature` skill - review implementation against the design.
 
-For small, clear, single-file changes, proceed directly with the normal Claude
-Code workflow and keep the final report short.
+Use `implement-task` as the safer default when checkpoints matter. Use
+`implement-plan` only as an accelerated mode; it does not run `review-feature`
+automatically.
+
+For small, clear, single-file changes, proceed directly with the normal
+Antigravity workflow and keep the final report short.
 
 For medium tasks, write a lightweight inline plan before editing:
 

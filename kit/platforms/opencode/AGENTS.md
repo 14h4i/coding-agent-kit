@@ -43,14 +43,20 @@ For non-trivial feature work — adding a feature, changing behavior, or
 anything where the implementation could go multiple ways — use the
 `coding-agent-brainstorm-feature` skill before writing code, then
 `coding-agent-write-plan` to turn the approved design into a task-by-task
-plan, then `coding-agent-implement-task` to execute it one task at a time,
-then `coding-agent-review-feature` to close the loop.
+plan, then `coding-agent-implement-task` to execute it one task at a time or
+`coding-agent-implement-plan` to execute all remaining tasks when the approved
+plan is clear, then `coding-agent-review-feature` to close the loop.
 
 Full workflow:
 1. `/brainstorm` — explore intent, approve design doc
 2. `/plan` — break design into tasks with real code
 3. `/implement` (repeat) — one task at a time, verify each
+   or `/implement-plan` — accelerated mode for all remaining tasks
 4. `/review` — compare implementation vs design, get manual test checklist
+
+Use `/implement` as the safer default when checkpoints matter. Use
+`/implement-plan` only as an accelerated mode; it does not run `/review`
+automatically.
 
 For small, clear, single-file changes, skip all of this and proceed directly.
 
