@@ -3,7 +3,7 @@ description: Create a new skill for this project or globally
 agent: plan
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 Use the `coding-agent-skill-creator` skill to create a new skill.
 

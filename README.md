@@ -245,8 +245,7 @@ Choose one implementation mode after the plan is approved:
 - `$coding-agent-implement-plan` handles all remaining tasks sequentially,
   verifies each one, then stops before the final review.
 
-Use `$coding-agent-review-feature` after implementation to review the full
-feature against the design.
+After implementation, run the final review:
 
 ```text
 $coding-agent-review-feature
@@ -280,8 +279,8 @@ opencode
 ```
 
 Use `/implement` for one task at a time. Use `/implement-plan` only when the
-plan is clear and you want all remaining tasks completed in one run. Run
-`/review` after either implementation mode.
+plan is clear and you want all remaining tasks completed in one run. After
+either implementation mode, run the final review:
 
 ```text
 /review
@@ -311,8 +310,8 @@ review-feature
 ```
 
 Use `implement-task` for one task at a time. Use `implement-plan` only when the
-plan is clear and you want all remaining tasks completed in one run. Run
-`review-feature` after either implementation mode.
+plan is clear and you want all remaining tasks completed in one run. Then run
+the review skill.
 
 The scan workflow creates or updates project docs and
 `.agents/rules/project-guidance.md`. It does not edit Antigravity settings,
@@ -343,8 +342,7 @@ Restart Claude Code or start a new session. Use namespaced plugin skills:
 
 Use `/coding-agent-kit:implement-task` for one task at a time. Use
 `/coding-agent-kit:implement-plan` only when the plan is clear and you want all
-remaining tasks completed in one run. Run `/coding-agent-kit:review-feature`
-after either implementation mode.
+remaining tasks completed in one run. Then run the review skill.
 
 The scan workflow creates or updates project docs and `CLAUDE.md`. It does not
 edit Claude settings, hooks, monitors, MCP, permissions, sandbox, auth,

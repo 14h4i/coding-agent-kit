@@ -3,7 +3,7 @@ description: Implement all remaining tasks from an approved plan in docs/plans/
 agent: build
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 Use the `coding-agent-implement-plan` skill to execute all remaining unchecked
 tasks from the plan.

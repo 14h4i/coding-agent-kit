@@ -3,7 +3,7 @@ description: Review a completed feature against its design doc and produce a man
 agent: build
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 Use the `coding-agent-review-feature` skill to review the completed implementation.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1] - 2026-07-01
+
+### Changed
+
+- Clarified README feature workflow wording to avoid repeating the final
+  review command.
+
 ## [1.2.0] - 2026-07-01
 
 ### Added

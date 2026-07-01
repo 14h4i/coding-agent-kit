@@ -9,7 +9,7 @@ description: >
   single-file, unambiguous changes — see "When to skip" below.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 ## When to use
 

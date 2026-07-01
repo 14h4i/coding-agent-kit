@@ -8,7 +8,7 @@ description: >
   the separate review-feature step.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 ## Prerequisites
 

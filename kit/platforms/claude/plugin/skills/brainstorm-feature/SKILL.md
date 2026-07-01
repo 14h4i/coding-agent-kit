@@ -7,7 +7,7 @@ description: >
   intent, compare approaches, and produce an approved design doc before code.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 ## When to Use
 

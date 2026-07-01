@@ -3,7 +3,7 @@ description: Explore a feature idea through dialogue and produce an approved des
 agent: plan
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 Use the `coding-agent-brainstorm-feature` skill to turn this idea into a design.
 

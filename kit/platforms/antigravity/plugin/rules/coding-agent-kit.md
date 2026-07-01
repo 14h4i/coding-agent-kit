@@ -1,6 +1,6 @@
 # coding-agent-kit - Antigravity Rules
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 lang=en -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 lang=en -->
 
 Applies to Google Antigravity when the coding-agent-kit plugin is loaded. Workspace rules in `.agents/rules/` may add more specific repository guidance.
 

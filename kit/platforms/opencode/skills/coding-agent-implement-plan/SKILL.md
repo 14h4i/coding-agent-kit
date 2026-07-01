@@ -8,7 +8,7 @@ description: >
   validation, and stop before the separate review step.
 ---
 
-<!-- CODING_AGENT_KIT_MANAGED version=1.2.0 -->
+<!-- CODING_AGENT_KIT_MANAGED version=1.2.1 -->
 
 ## Prerequisites
 
